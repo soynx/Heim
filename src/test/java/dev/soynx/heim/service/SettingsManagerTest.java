@@ -16,6 +16,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import dev.soynx.heim.api.dto.SettingsDto;
 import dev.soynx.heim.api.dto.SettingsRequest;
 import dev.soynx.heim.api.dto.SettingsRequest.BackgroundRequest;
+import dev.soynx.heim.api.dto.SettingsRequest.ProbeRequest;
 import dev.soynx.heim.config.ConfigStore;
 import dev.soynx.heim.config.TestStores;
 import dev.soynx.heim.config.model.BackgroundSource;
@@ -57,6 +58,22 @@ class SettingsManagerTest {
         assertThat(dto.theme()).isEqualTo("dark");
         assertThat(dto.customCss()).isEqualTo("body{}");
         assertThat(settings.customCss()).isEqualTo("body{}");
+    }
+
+    @Test
+    void partialProbeUpdateKeepsOtherField() {
+        settings.update(new SettingsRequest(null, null, null, null, new ProbeRequest(120, 10)), null);
+
+        SettingsDto interval = settings.update(new SettingsRequest(null, null, null, null,
+                new ProbeRequest(30, null)), null).value();
+        assertThat(interval.probe().getIntervalSeconds()).isEqualTo(30);
+        assertThat(interval.probe().getTimeoutSeconds()).isEqualTo(10);
+
+        SettingsDto timeout = settings.update(new SettingsRequest(null, null, null, null,
+                new ProbeRequest(null, 3)), null).value();
+        assertThat(timeout.probe().getIntervalSeconds()).isEqualTo(30);
+        assertThat(timeout.probe().getTimeoutSeconds()).isEqualTo(3);
+        assertThat(store.read().getSettings().getProbe().getTimeoutSeconds()).isEqualTo(3);
     }
 
     @Test

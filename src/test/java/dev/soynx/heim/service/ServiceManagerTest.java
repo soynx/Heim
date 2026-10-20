@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -280,14 +279,27 @@ class ServiceManagerTest {
     }
 
     @Test
-    @Disabled("BUG: Urls.requireAbsolute accepts javascript:/data: URIs for link urls, which the dashboard "
-            + "renders as clickable hrefs (stored XSS vector when editing is not login-protected)")
     void scriptUrlsRejectedForLinks() {
         assertThatThrownBy(() -> services.create(service("S", null, link(null, "javascript:alert(1)")), null))
                 .isInstanceOf(BadRequestException.class);
         assertThatThrownBy(() -> services.create(service("S", null,
                 link(null, "data:text/html,<script>alert(1)</script>")), null))
                 .isInstanceOf(BadRequestException.class);
+        for (String url : List.of("JaVaScRiPt:alert(1)", " javascript:alert(1)", "\u0001\tjavascript:alert(1)",
+                "java\tscript:alert(1)", "vbscript:msgbox(1)", "VBScript:msgbox(1)", "file:///etc/passwd")) {
+            assertThatThrownBy(() -> services.create(service("S", null, link(null, url)), null))
+                    .as(url).isInstanceOf(BadRequestException.class);
+        }
+        assertThat(store.read().getServices()).isEmpty();
+    }
+
+    @Test
+    void nonWebLinkSchemesAllowed() {
+        for (String url : List.of("ssh://root@nas.lan", "rdp://win.lan", "vnc://pi.lan:5900", "smb://nas/share",
+                "ftp://nas.lan", "sftp://nas.lan", "steam://run/570")) {
+            assertThat(services.create(service("S", null, link(null, url)), null).value().links().getFirst().getUrl())
+                    .isEqualTo(url);
+        }
     }
 
     @Test
@@ -380,8 +392,6 @@ class ServiceManagerTest {
     }
 
     @Test
-    @Disabled("BUG: ServiceManager.applyLink replaces link.probe with the request's ProbeConfig, so unknown "
-            + "probe fields from a newer config (e.g. probe.type) are lost when an older build edits the service")
     void unknownProbeFieldsSurviveApiUpdate() {
         TestStores.installFixture(dir, "config-unknown-fields.json");
         ConfigStore fixtureStore = TestStores.open(dir);
@@ -396,6 +406,33 @@ class ServiceManagerTest {
         Map<String, Object> extra = fixtureStore.read().findService("svc_prox0001").orElseThrow()
                 .getLinks().getFirst().getProbe().getExtra();
         assertThat(extra).containsEntry("type", "http");
+
+        // Also when the request omits the probe entirely.
+        manager.update("svc_prox0001", service("Proxmox", null, link("lnk_prox0001", "https://pve.lan")), null);
+        assertThat(fixtureStore.read().findService("svc_prox0001").orElseThrow()
+                .getLinks().getFirst().getProbe().getExtra()).containsEntry("type", "http");
+    }
+
+    @Test
+    void unknownIconFieldsSurviveApiUpdateAndRequestExtrasWin() {
+        TestStores.installFixture(dir, "config-unknown-fields.json");
+        ConfigStore fixtureStore = TestStores.open(dir);
+        ServiceManager manager = new ServiceManager(fixtureStore);
+        IconRef icon = icon(IconSource.FAVICON, null);
+        icon.putExtra("clientField", "c");
+
+        manager.update("svc_prox0001", service("Proxmox", null, icon, null, link("lnk_prox0001", "https://pve.lan")),
+                null);
+
+        IconRef stored = fixtureStore.read().findService("svc_prox0001").orElseThrow().getIcon();
+        assertThat(stored.getExtra()).containsEntry("iconFuture", "i").containsEntry("clientField", "c");
+
+        IconRef overriding = icon(IconSource.FAVICON, null);
+        overriding.putExtra("iconFuture", "new");
+        manager.update("svc_prox0001", service("Proxmox", null, overriding, null,
+                link("lnk_prox0001", "https://pve.lan")), null);
+        assertThat(fixtureStore.read().findService("svc_prox0001").orElseThrow().getIcon().getExtra())
+                .containsEntry("iconFuture", "new").containsEntry("clientField", "c");
     }
 
     @Test

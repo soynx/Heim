@@ -57,8 +57,12 @@ public class SettingsManager {
                 settings.setCustomCss(request.customCss());
             }
             if (request.probe() != null) {
-                settings.getProbe().setIntervalSeconds(request.probe().getIntervalSeconds());
-                settings.getProbe().setTimeoutSeconds(request.probe().getTimeoutSeconds());
+                if (request.probe().intervalSeconds() != null) {
+                    settings.getProbe().setIntervalSeconds(request.probe().intervalSeconds());
+                }
+                if (request.probe().timeoutSeconds() != null) {
+                    settings.getProbe().setTimeoutSeconds(request.probe().timeoutSeconds());
+                }
             }
             if (request.background() != null) {
                 applyBackground(settings.getBackground(), request.background());
