@@ -1,0 +1,11 @@
+{
+  "settings": { "title": "Legacy" },
+  "tabs": [
+    { "id": "tab_old00001", "name": "Old", "isDefault": true, "showAll": false,
+      "groups": [ { "id": "grp_old00001", "serviceIds": ["svc_old00001"] } ] }
+  ],
+  "services": [
+    { "id": "svc_old00001", "name": "Router", "primaryLinkId": "lnk_old00001",
+      "links": [ { "id": "lnk_old00001", "label": "LAN", "url": "http://192.168.1.1" } ] }
+  ]
+}
