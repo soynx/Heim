@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -17,6 +18,7 @@ import dev.soynx.heim.api.dto.ServiceRequest;
 import dev.soynx.heim.config.ConfigStore;
 import dev.soynx.heim.config.IdGenerator;
 import dev.soynx.heim.config.Versioned;
+import dev.soynx.heim.config.model.Extensible;
 import dev.soynx.heim.config.model.HeimConfig;
 import dev.soynx.heim.config.model.IconRef;
 import dev.soynx.heim.config.model.IconSource;
@@ -142,14 +144,16 @@ public class ServiceManager {
         if (probe.getUrl() != null) {
             probe.setUrl(Urls.requireHttp(probe.getUrl(), field + ".probe.url"));
         }
+        keepExtra(link.getProbe(), probe);
         link.setProbe(probe);
     }
 
     /**
      * Builds the stored icon. The cached file survives only if the icon definition is unchanged;
-     * otherwise it is cleared so the icon gets fetched again.
+     * otherwise it is cleared so the icon gets fetched again. A client-sent cached file is ignored.
+     * Also used for tab icons, which have no links ({@code linkIds} empty).
      */
-    private static IconRef icon(IconRef requested, IconRef previous, Map<String, String> linkIds) {
+    static IconRef icon(IconRef requested, IconRef previous, Map<String, String> linkIds) {
         IconRef icon = requested != null ? requested : new IconRef();
         if (icon.getSource() == null) {
             icon.setSource(IconSource.FAVICON);
@@ -170,6 +174,21 @@ public class ServiceManager {
                 && Objects.equals(previous.getValue(), icon.getValue())
                 && Objects.equals(previous.getFaviconLinkId(), icon.getFaviconLinkId());
         icon.setCachedFile(unchanged ? previous.getCachedFile() : null);
+        keepExtra(previous, icon);
         return icon;
+    }
+
+    /**
+     * Carries unknown fields of the stored object over to its replacement built from a request, so
+     * fields written by a newer version are not lost on edit. Fields sent in the request win.
+     */
+    static void keepExtra(Extensible previous, Extensible replacement) {
+        if (previous == null || previous == replacement || previous.getExtra().isEmpty()) {
+            return;
+        }
+        Map<String, Object> merged = new LinkedHashMap<>(previous.getExtra());
+        merged.putAll(replacement.getExtra());
+        replacement.getExtra().clear();
+        replacement.getExtra().putAll(merged);
     }
 }

@@ -16,9 +16,12 @@ import dev.soynx.heim.api.dto.DashboardView;
 import dev.soynx.heim.api.dto.DashboardView.DashboardTab;
 import dev.soynx.heim.api.dto.GroupRequest;
 import dev.soynx.heim.api.dto.ServiceDto;
+import dev.soynx.heim.api.dto.TabRequest;
 import dev.soynx.heim.config.ConfigStore;
 import dev.soynx.heim.config.TestStores;
 import dev.soynx.heim.config.model.Group;
+import dev.soynx.heim.config.model.IconRef;
+import dev.soynx.heim.config.model.IconSource;
 import dev.soynx.heim.config.model.Tab;
 import dev.soynx.heim.error.BadRequestException;
 import dev.soynx.heim.error.NotFoundException;
@@ -268,5 +271,44 @@ class TabManagerTest {
             assertThat(t.services()).singleElement()
                     .satisfies(s -> assertThat(s.tabIds()).containsExactly(home));
         });
+    }
+
+    // --- icon -----------------------------------------------------------------------------
+
+    private static TabRequest tabWithIcon(String name, IconSource source, String value, String cachedFile) {
+        IconRef icon = Requests.icon(source, value);
+        icon.setCachedFile(cachedFile);
+        return new TabRequest(name, icon, null, null, null);
+    }
+
+    private void setTabCachedFile(String tabId, String file) {
+        store.update(null, c -> {
+            c.findTab(tabId).orElseThrow().getIcon().setCachedFile(file);
+            return null;
+        });
+    }
+
+    @Test
+    void clientSentTabIconCachedFileIgnored() {
+        Tab created = tabs.create(tabWithIcon("Media", IconSource.LIBRARY, "film", "../../etc/passwd"), null).value();
+        assertThat(created.getIcon().getCachedFile()).isNull();
+
+        setTabCachedFile(created.getId(), "tab_cached.svg");
+        Tab same = tabs.update(created.getId(), tabWithIcon("Media2", IconSource.LIBRARY, "film", "client.png"), null)
+                .value();
+        assertThat(same.getIcon().getCachedFile()).isEqualTo("tab_cached.svg");
+
+        Tab changed = tabs.update(created.getId(), tabWithIcon("Media2", IconSource.LIBRARY, "music", "client.png"),
+                null).value();
+        assertThat(changed.getIcon().getCachedFile()).isNull();
+        assertThat(tabById(created.getId()).getIcon().getCachedFile()).isNull();
+
+        assertThat(tabs.update(created.getId(), tab("NoIcon"), null).value().getIcon()).isNull();
+    }
+
+    @Test
+    void tabIconUrlMustBeHttp() {
+        assertThatThrownBy(() -> tabs.create(tabWithIcon("X", IconSource.URL, "javascript:alert(1)", null), null))
+                .isInstanceOf(BadRequestException.class);
     }
 }

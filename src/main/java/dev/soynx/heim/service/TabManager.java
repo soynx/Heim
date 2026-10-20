@@ -124,7 +124,7 @@ public class TabManager {
     }
 
     private static void apply(HeimConfig config, Tab tab, TabRequest request) {
-        tab.setIcon(request.icon());
+        tab.setIcon(request.icon() != null ? ServiceManager.icon(request.icon(), tab.getIcon(), Map.of()) : null);
         tab.setColor(request.color());
         if (request.showAll() != null) {
             tab.setShowAll(request.showAll());

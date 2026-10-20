@@ -1,8 +1,9 @@
 package dev.soynx.heim.api.dto;
 
 import dev.soynx.heim.config.model.BackgroundSource;
-import dev.soynx.heim.config.model.ProbeDefaults;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -15,8 +16,14 @@ public record SettingsRequest(
         @Size(max = 50) String theme,
         BackgroundRequest background,
         @Size(max = 500_000) String customCss,
-        @Valid ProbeDefaults probe) {
+        @Valid ProbeRequest probe) {
 
     public record BackgroundRequest(BackgroundSource source, @Size(max = 2048) String value) {
+    }
+
+    /** Global probe timing; null fields are left unchanged. */
+    public record ProbeRequest(
+            @Min(5) @Max(86_400) Integer intervalSeconds,
+            @Min(1) @Max(300) Integer timeoutSeconds) {
     }
 }
