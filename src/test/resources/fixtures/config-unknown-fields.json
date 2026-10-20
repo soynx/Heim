@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "revision": 7,
+  "rootFuture": {"nested": [1, 2, 3]},
+  "settings": {
+    "title": "Home",
+    "theme": "dark",
+    "settingsFuture": "s",
+    "background": { "source": "url", "value": "https://example.com/bg.png", "cachedFile": null, "backgroundFuture": true },
+    "customCss": "body { color: red; }",
+    "probe": { "intervalSeconds": 30, "timeoutSeconds": 3, "probeDefaultsFuture": 1 },
+    "auth": {
+      "requireLoginToView": false,
+      "requireLoginToEdit": false,
+      "username": null,
+      "passwordHash": null,
+      "authFuture": "a"
+    },
+    "networks": [{"name": "lan", "cidr": "192.168.1.0/24"}]
+  },
+  "tabs": [
+    {
+      "id": "tab_main0001",
+      "name": "Dashboard",
+      "icon": { "source": "library", "value": "home", "faviconLinkId": null, "cachedFile": null, "tabIconFuture": 5 },
+      "color": null,
+      "isDefault": true,
+      "showAll": true,
+      "requireLogin": false,
+      "groups": [
+        { "id": "grp_main0001", "name": null, "serviceIds": ["svc_prox0001"], "groupFuture": {"collapsed": true} }
+      ]
+    }
+  ],
+  "services": [
+    {
+      "id": "svc_prox0001",
+      "name": "Proxmox",
+      "description": "Hypervisor",
+      "color": null,
+      "serviceFuture": ["x"],
+      "icon": { "source": "favicon", "value": null, "faviconLinkId": null, "cachedFile": "svc_prox0001.png", "iconFuture": "i" },
+      "primaryLinkId": "lnk_prox0001",
+      "links": [
+        {
+          "id": "lnk_prox0001",
+          "label": "LAN",
+          "kind": "ip",
+          "url": "https://192.168.1.10:8006",
+          "openInNewTab": true,
+          "linkFuture": 42,
+          "probe": {
+            "enabled": true,
+            "type": "http",
+            "url": null,
+            "method": "GET",
+            "expectedStatus": "200-399",
+            "ignoreTls": true,
+            "followRedirects": false,
+            "intervalSeconds": null,
+            "timeoutSeconds": null
+          }
+        }
+      ],
+      "createdAt": "2026-10-20T14:00:00Z",
+      "updatedAt": "2026-10-20T14:00:00Z"
+    }
+  ]
+}
