@@ -10,3 +10,4 @@ docker-compose.yml
 .design/
 CLAUDE.md
 README.md
+.Dockerfile-cert

@@ -15,3 +15,6 @@ data/
 
 # Claude Code (agent worktrees)
 .claude/
+
+# Local-only Dockerfile with this PC's corporate root CA
+.Dockerfile-cert
