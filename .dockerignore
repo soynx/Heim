@@ -6,3 +6,7 @@ data/
 *.iml
 Dockerfile
 docker-compose.yml
+.claude/
+.design/
+CLAUDE.md
+README.md
