@@ -1,22 +1,26 @@
 package dev.soynx.heim.error;
 
-/** The client's {@code If-Match} revision is stale. Mapped to HTTP 409. */
+/**
+ * The client's {@code If-Match} tag is stale. Mapped to HTTP 409 with the current tag as
+ * {@code ETag}.
+ */
 public class RevisionConflictException extends RuntimeException {
 
-    private final long expected;
-    private final long actual;
+    private final String currentTag;
 
+    /** Stale global config revision. */
     public RevisionConflictException(long expected, long actual) {
-        super("Config was modified concurrently (expected revision " + expected + ", current " + actual + ")");
-        this.expected = expected;
-        this.actual = actual;
+        this("Config was modified concurrently (expected revision " + expected + ", current " + actual + ")",
+                String.valueOf(actual));
     }
 
-    public long expected() {
-        return expected;
+    /** Stale resource tag; {@code currentTag} is the unquoted tag the resource has now. */
+    public RevisionConflictException(String message, String currentTag) {
+        super(message);
+        this.currentTag = currentTag;
     }
 
-    public long actual() {
-        return actual;
+    public String currentTag() {
+        return currentTag;
     }
 }

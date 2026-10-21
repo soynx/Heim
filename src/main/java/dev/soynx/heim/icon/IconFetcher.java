@@ -16,7 +16,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import dev.soynx.heim.config.model.IconRef;
-import dev.soynx.heim.config.model.Link;
 import dev.soynx.heim.config.model.Service;
 
 /** Downloads a service's icon from its configured source. Never throws; failures yield empty. */
@@ -67,11 +66,7 @@ public class IconFetcher {
 
     /** The icon's favicon link, falling back to the primary link and then to the first one. */
     public static Optional<FaviconTarget> faviconTarget(Service service) {
-        IconRef icon = service.getIcon();
-        Optional<Link> link = service.findLink(icon.getFaviconLinkId())
-                .or(() -> service.findLink(service.getPrimaryLinkId()))
-                .or(() -> service.getLinks().stream().findFirst());
-        return link.flatMap(l -> parse(l.getUrl())
+        return service.faviconLink().flatMap(l -> parse(l.getUrl())
                 .map(uri -> new FaviconTarget(uri, l.getProbe() != null && l.getProbe().isIgnoreTls())));
     }
 

@@ -28,7 +28,7 @@ import org.springframework.web.multipart.MultipartFile;
 import dev.soynx.heim.api.dto.ServiceDto;
 import dev.soynx.heim.config.ConfigChangedEvent;
 import dev.soynx.heim.config.ConfigStore;
-import dev.soynx.heim.config.Versioned;
+import dev.soynx.heim.config.Tagged;
 import dev.soynx.heim.config.model.HeimConfig;
 import dev.soynx.heim.config.model.IconRef;
 import dev.soynx.heim.config.model.IconSource;
@@ -37,6 +37,7 @@ import dev.soynx.heim.config.model.Tab;
 import dev.soynx.heim.error.BadRequestException;
 import dev.soynx.heim.error.NotFoundException;
 import dev.soynx.heim.service.Membership;
+import dev.soynx.heim.service.ServiceManager;
 import jakarta.annotation.PreDestroy;
 
 /**
@@ -111,7 +112,7 @@ public class IconService {
     }
 
     /** Stores an uploaded icon and switches the service to it. */
-    public Versioned<ServiceDto> upload(String serviceId, MultipartFile file, Long expectedRevision) {
+    public Tagged<ServiceDto> upload(String serviceId, MultipartFile file, String expectedTag) {
         if (file == null || file.isEmpty()) {
             throw new BadRequestException("file is required");
         }
@@ -126,15 +127,16 @@ public class IconService {
         String stored = files.save(serviceId, icon);
         pendingFiles.add(stored);
         try {
-            return store.update(expectedRevision, config -> {
+            return tagged(store.update(null, config -> {
                 Service service = config.findService(serviceId).orElseThrow(() -> NotFoundException.service(serviceId));
+                ServiceManager.checkTag(expectedTag, config, service);
                 IconRef ref = service.getIcon();
                 ref.setSource(IconSource.UPLOAD);
                 ref.setValue(originalName(file));
                 ref.setCachedFile(stored);
                 service.setUpdatedAt(Instant.now());
                 return toDto(config, service);
-            });
+            }).value());
         } catch (RuntimeException e) {
             files.delete(stored);
             throw e;
@@ -147,7 +149,7 @@ public class IconService {
      * Fetches the icon again right away. On failure the previous cached file (if any) is kept.
      * Uploaded icons have nothing to fetch and are returned unchanged.
      */
-    public Versioned<ServiceDto> refresh(String serviceId) {
+    public Tagged<ServiceDto> refresh(String serviceId) {
         HeimConfig config = store.read();
         Service service = config.findService(serviceId).orElseThrow(() -> NotFoundException.service(serviceId));
         if (service.getIcon().getSource() != IconSource.UPLOAD) {
@@ -158,15 +160,15 @@ public class IconService {
                 failures.put(serviceId, new Failure(key, Instant.now()));
                 log.info("No icon found for service {} ({})", serviceId, key.source());
             } else {
-                Optional<Versioned<ServiceDto>> committed = commit(serviceId, key, icon.get(), true);
+                Optional<ServiceDto> committed = commit(serviceId, key, icon.get(), true);
                 if (committed.isPresent()) {
-                    return committed.get();
+                    return tagged(committed.get());
                 }
             }
             config = store.read();
             service = config.findService(serviceId).orElseThrow(() -> NotFoundException.service(serviceId));
         }
-        return new Versioned<>(toDto(config, service), config.getRevision());
+        return tagged(toDto(config, service));
     }
 
     /** Starts background fetches for services that lack a cached icon. */
@@ -231,7 +233,7 @@ public class IconService {
      *
      * @return the updated service, or empty if the result was discarded
      */
-    private Optional<Versioned<ServiceDto>> commit(String serviceId, IconKey key, IconFetcher.IconFile icon,
+    private Optional<ServiceDto> commit(String serviceId, IconKey key, IconFetcher.IconFile icon,
             boolean overwrite) {
         String stored = files.save(serviceId, icon);
         pendingFiles.add(stored);
@@ -243,7 +245,7 @@ public class IconService {
                 }
                 service.getIcon().setCachedFile(stored);
                 return toDto(config, service);
-            }));
+            }).value());
         } catch (Superseded e) {
             files.delete(stored);
             return Optional.empty();
@@ -310,6 +312,10 @@ public class IconService {
     void shutdown() {
         scheduler.shutdownNow();
         executor.shutdownNow();
+    }
+
+    private static Tagged<ServiceDto> tagged(ServiceDto service) {
+        return new Tagged<>(service, ServiceManager.tagOf(service));
     }
 
     private static ServiceDto toDto(HeimConfig config, Service service) {

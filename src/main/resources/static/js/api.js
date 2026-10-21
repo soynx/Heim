@@ -3,6 +3,8 @@
 // - JSON in/out, same-origin credentials (session cookie).
 // - CSRF: the XSRF-TOKEN cookie is echoed as X-XSRF-TOKEN on every non-GET request.
 // - Optimistic locking: pass { etag } to send If-Match; a 409 throws ApiError with `conflict = true`.
+//   ETags are per resource: a service/tab/settings write takes the ETag of that resource's GET;
+//   tab create/reorder take the ETag of the tab list (it covers the tab order only).
 // - 401 notifies onUnauthorized listeners (the app shows the login view) unless { quiet401: true }.
 
 export class ApiError extends Error {
@@ -114,6 +116,7 @@ export const api = {
 
   tabs: {
     list: () => get('/api/tabs'),
+    get: (id) => get(`/api/tabs/${enc(id)}`),
     create: (body, etag) => request('POST', '/api/tabs', { body, etag }),
     update: (id, body, etag) => request('PUT', `/api/tabs/${enc(id)}`, { body, etag }),
     remove: (id, etag) => request('DELETE', `/api/tabs/${enc(id)}`, { etag }),

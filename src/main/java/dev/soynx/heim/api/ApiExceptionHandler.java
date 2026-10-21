@@ -41,7 +41,7 @@ public class ApiExceptionHandler {
     @ExceptionHandler(RevisionConflictException.class)
     ResponseEntity<ApiError> conflict(RevisionConflictException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .eTag(ETags.of(e.actual()))
+                .eTag(ETags.of(e.currentTag()))
                 .body(new ApiError(HttpStatus.CONFLICT.getReasonPhrase(), e.getMessage()));
     }
 

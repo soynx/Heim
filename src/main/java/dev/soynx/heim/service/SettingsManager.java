@@ -11,6 +11,8 @@ import dev.soynx.heim.api.dto.SettingsDto;
 import dev.soynx.heim.api.dto.SettingsRequest;
 import dev.soynx.heim.api.dto.SettingsRequest.BackgroundRequest;
 import dev.soynx.heim.config.ConfigStore;
+import dev.soynx.heim.config.ResourceTags;
+import dev.soynx.heim.config.Tagged;
 import dev.soynx.heim.config.Versioned;
 import dev.soynx.heim.config.model.BackgroundRef;
 import dev.soynx.heim.config.model.BackgroundSource;
@@ -31,18 +33,19 @@ public class SettingsManager {
         this.uploads = uploads;
     }
 
-    public Versioned<SettingsDto> get() {
-        var config = store.read();
-        return new Versioned<>(SettingsDto.from(config.getSettings()), config.getRevision());
+    public Tagged<SettingsDto> get() {
+        SettingsDto settings = SettingsDto.from(store.read().getSettings());
+        return new Tagged<>(settings, tagOf(settings));
     }
 
     public String customCss() {
         return store.read().getSettings().getCustomCss();
     }
 
-    public Versioned<SettingsDto> update(SettingsRequest request, Long expectedRevision) {
-        Versioned<Change> result = store.update(expectedRevision, config -> {
+    public Tagged<SettingsDto> update(SettingsRequest request, String expectedTag) {
+        Versioned<Change> result = store.update(null, config -> {
             Settings settings = config.getSettings();
+            checkTag(expectedTag, settings);
             String previousFile = settings.getBackground().getCachedFile();
             if (request.title() != null) {
                 if (request.title().isBlank()) {
@@ -73,7 +76,7 @@ public class SettingsManager {
     }
 
     /** Stores an uploaded png/jpg/webp/gif and makes it the background. */
-    public Versioned<SettingsDto> uploadBackground(MultipartFile file, Long expectedRevision) {
+    public Tagged<SettingsDto> uploadBackground(MultipartFile file, String expectedTag) {
         if (file == null || file.isEmpty()) {
             throw new BadRequestException("file is required");
         }
@@ -87,7 +90,8 @@ public class SettingsManager {
 
         Versioned<Change> result;
         try {
-            result = store.update(expectedRevision, config -> {
+            result = store.update(null, config -> {
+                checkTag(expectedTag, config.getSettings());
                 BackgroundRef background = config.getSettings().getBackground();
                 String previousFile = background.getCachedFile();
                 background.setSource(BackgroundSource.UPLOAD);
@@ -122,14 +126,26 @@ public class SettingsManager {
         background.setSource(source);
     }
 
+    /**
+     * Tag of the general settings. The login settings are left out: they are changed through
+     * {@code PUT /api/settings/auth}, which must not invalidate an open settings form.
+     */
+    static String tagOf(SettingsDto settings) {
+        return ResourceTags.of(settings, "auth");
+    }
+
+    private static void checkTag(String expectedTag, Settings settings) {
+        ResourceTags.check(expectedTag, tagOf(SettingsDto.from(settings)), "Settings");
+    }
+
     /** Removes a background file that is no longer referenced once the change is saved. */
-    private Versioned<SettingsDto> finish(Versioned<Change> result) {
+    private Tagged<SettingsDto> finish(Versioned<Change> result) {
         String previous = result.value().previousBackgroundFile();
         SettingsDto settings = result.value().settings();
         if (previous != null && !Objects.equals(previous, settings.background().getCachedFile())) {
             uploads.delete(previous);
         }
-        return new Versioned<>(settings, result.revision());
+        return new Tagged<>(settings, tagOf(settings));
     }
 
     private record Change(SettingsDto settings, String previousBackgroundFile) {

@@ -2,6 +2,7 @@ package dev.soynx.heim.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -16,6 +17,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.net.URI;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,10 +39,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import dev.soynx.heim.config.ConfigStore;
+import dev.soynx.heim.service.TabManager;
 
 /**
  * MockMvc tests of the foundation REST API. All tests share one context and data directory, so
- * each test reads the current revision instead of assuming one. Mutating requests carry a CSRF
+ * each test reads the current revision and ETags instead of assuming them. Mutating requests carry a CSRF
  * token so the tests keep working once real security replaces the temporary permit-all config.
  */
 @SpringBootTest
@@ -62,6 +66,9 @@ class ApiTest {
 
     @Autowired
     ConfigStore store;
+
+    @Autowired
+    TabManager tabs;
 
     private final ObjectMapper json = new ObjectMapper();
 
@@ -86,12 +93,26 @@ class ApiTest {
 
     // --- ETags ----------------------------------------------------------------------------
 
-    @ParameterizedTest
-    @ValueSource(strings = {"/api/dashboard", "/api/services", "/api/tabs", "/api/settings"})
-    void getsCarryRevisionETag(String path) throws Exception {
-        mvc.perform(get(path))
+    private String etagOf(MockHttpServletRequestBuilder request) throws Exception {
+        return mvc.perform(request).andExpect(status().isOk()).andReturn().getResponse().getHeader("ETag");
+    }
+
+    @Test
+    void dashboardCarriesRevisionETag() throws Exception {
+        mvc.perform(get("/api/dashboard"))
                 .andExpect(status().isOk())
-                .andExpect(header().string("ETag", etag(store.revision())));
+                .andExpect(header().string("ETag", etag(store.revision())))
+                .andExpect(jsonPath("$.revision").value(store.revision()));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/services", "/api/tabs", "/api/settings"})
+    void getsCarryResourceETagIndependentOfRevision(String path) throws Exception {
+        String tag = etagOf(get(path));
+        assertThat(tag).matches("\"[0-9a-f]{16}\"");
+
+        store.update(null, c -> null); // bumps the revision only
+        assertThat(etagOf(get(path))).isEqualTo(tag);
     }
 
     @Test
@@ -100,7 +121,7 @@ class ApiTest {
 
         mvc.perform(get("/api/services/{id}", id))
                 .andExpect(status().isOk())
-                .andExpect(header().string("ETag", etag(store.revision())))
+                .andExpect(header().string("ETag", matchesPattern("\"[0-9a-f]{16}\"")))
                 .andExpect(jsonPath("$.name").value("Etagged"));
 
         mvc.perform(get("/api/services/svc_missing0"))
@@ -112,17 +133,21 @@ class ApiTest {
 
     @Test
     void writesReturnNewETag() throws Exception {
-        long rev = store.revision();
-        mvc.perform(jsonBody(put("/api/settings"), "{\"theme\":\"dark\"}").header("If-Match", etag(rev)))
+        String tag = etagOf(get("/api/settings"));
+        String theme = "dark".equals(store.read().getSettings().getTheme()) ? "light" : "dark";
+        MvcResult result = mvc.perform(jsonBody(put("/api/settings"), "{\"theme\":\"" + theme + "\"}")
+                        .header("If-Match", tag))
                 .andExpect(status().isOk())
-                .andExpect(header().string("ETag", etag(rev + 1)))
-                .andExpect(jsonPath("$.theme").value("dark"));
+                .andExpect(jsonPath("$.theme").value(theme))
+                .andReturn();
+        String newTag = result.getResponse().getHeader("ETag");
+        assertThat(newTag).isNotEqualTo(tag).isEqualTo(etagOf(get("/api/settings")));
     }
 
     @Test
     void weakAndWildcardIfMatchAccepted() throws Exception {
-        long rev = store.revision();
-        mvc.perform(jsonBody(put("/api/settings"), "{}").header("If-Match", "W/" + etag(rev)))
+        String tag = etagOf(get("/api/settings"));
+        mvc.perform(jsonBody(put("/api/settings"), "{}").header("If-Match", "W/" + tag))
                 .andExpect(status().isOk());
         mvc.perform(jsonBody(put("/api/settings"), "{}").header("If-Match", "*"))
                 .andExpect(status().isOk());
@@ -132,16 +157,18 @@ class ApiTest {
     void staleIfMatchIs409JsonAndNothingSaved() throws Exception {
         long rev = store.revision();
         String title = store.read().getSettings().getTitle();
+        String current = etagOf(get("/api/settings"));
 
-        mvc.perform(jsonBody(put("/api/settings"), "{\"title\":\"Overwritten\"}").header("If-Match", etag(rev - 1)))
+        mvc.perform(jsonBody(put("/api/settings"), "{\"title\":\"Overwritten\"}").header("If-Match", "\"stale\""))
                 .andExpect(status().isConflict())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(header().string("ETag", etag(rev)))
+                .andExpect(header().string("ETag", current))
                 .andExpect(jsonPath("$.error").value("Conflict"))
                 .andExpect(jsonPath("$.message").isString());
 
-        mvc.perform(jsonBody(post("/api/services"), "{\"name\":\"Late\"}").header("If-Match", etag(rev - 1)))
+        mvc.perform(jsonBody(post("/api/services"), "{\"name\":\"Late\"}").header("If-Match", "\"stale\""))
                 .andExpect(status().isConflict())
+                .andExpect(header().string("ETag", etagOf(get("/api/services"))))
                 .andExpect(jsonPath("$.error").value("Conflict"));
 
         assertThat(store.revision()).isEqualTo(rev);
@@ -149,8 +176,95 @@ class ApiTest {
     }
 
     @Test
+    void backgroundIconCacheDoesNotCauseConflictButRealEditDoes() throws Exception {
+        String id = createService("{\"name\":\"Editing\",\"tabIds\":[],\"links\":[{\"url\":\"https://a.lan\"}]}");
+        String opened = etagOf(get("/api/services/{id}", id));
+
+        // What IconService does after fetching a favicon in the background.
+        store.update(null, c -> {
+            c.findService(id).orElseThrow().getIcon().setCachedFile("svc_cached.png");
+            return null;
+        });
+
+        MvcResult saved = mvc.perform(jsonBody(put("/api/services/{id}", id),
+                        "{\"name\":\"Edited\",\"tabIds\":[],\"links\":[{\"url\":\"https://a.lan\"}]}")
+                        .header("If-Match", opened))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Edited"))
+                .andReturn();
+        String afterSave = saved.getResponse().getHeader("ETag");
+
+        // Someone else renames it meanwhile: our next save with the old tag must fail.
+        store.update(null, c -> {
+            c.findService(id).orElseThrow().setName("Renamed elsewhere");
+            return null;
+        });
+        mvc.perform(jsonBody(put("/api/services/{id}", id), "{\"name\":\"Mine\",\"tabIds\":[]}")
+                        .header("If-Match", afterSave))
+                .andExpect(status().isConflict())
+                .andExpect(header().string("ETag", etagOf(get("/api/services/{id}", id))));
+        mvc.perform(delete("/api/services/{id}", id).with(csrf()).header("If-Match", afterSave))
+                .andExpect(status().isConflict());
+        assertThat(store.read().findService(id).orElseThrow().getName()).isEqualTo("Renamed elsewhere");
+
+        mvc.perform(delete("/api/services/{id}", id).with(csrf())
+                        .header("If-Match", etagOf(get("/api/services/{id}", id))))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void tabETagsArePerTabAndOrderTagGuardsReorder() throws Exception {
+        String first = store.read().getTabs().getFirst().getId();
+        String second = body(mvc.perform(jsonBody(post("/api/tabs"), "{\"name\":\"Second\"}"))
+                .andExpect(status().isCreated()).andReturn()).path("id").asText();
+        String firstTag = etagOf(get("/api/tabs/{id}", first));
+        String secondTag = etagOf(get("/api/tabs/{id}", second));
+        String orderTag = etagOf(get("/api/tabs"));
+
+        // Editing one tab leaves the other's tag and the order tag valid.
+        mvc.perform(jsonBody(put("/api/tabs/{id}", second), "{\"name\":\"Second 2\"}").header("If-Match", secondTag))
+                .andExpect(status().isOk());
+        mvc.perform(jsonBody(put("/api/tabs/{id}/groups", first), "[]").header("If-Match", firstTag))
+                .andExpect(status().isOk());
+        mvc.perform(jsonBody(put("/api/tabs/{id}", second), "{\"name\":\"Stale\"}").header("If-Match", secondTag))
+                .andExpect(status().isConflict());
+
+        List<String> original = store.read().getTabs().stream().map(t -> t.getId()).toList();
+        String ids = original.reversed().stream()
+                .map(t -> "\"" + t + "\"").collect(Collectors.joining(",", "[", "]"));
+        MvcResult reordered = mvc.perform(jsonBody(put("/api/tabs/order"), "{\"tabIds\":" + ids + "}")
+                        .header("If-Match", orderTag))
+                .andExpect(status().isOk()).andReturn();
+        assertThat(reordered.getResponse().getHeader("ETag")).isNotEqualTo(orderTag);
+        mvc.perform(jsonBody(put("/api/tabs/order"), "{\"tabIds\":" + ids + "}").header("If-Match", orderTag))
+                .andExpect(status().isConflict());
+        tabs.reorder(original, null); // other tests expect the default tab first
+
+        mvc.perform(delete("/api/tabs/{id}", second).with(csrf())
+                        .header("If-Match", etagOf(get("/api/tabs/{id}", second))))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/api/tabs/tab_missing0")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void authChangesDoNotInvalidateSettingsTag() throws Exception {
+        String tag = etagOf(get("/api/settings"));
+        String username = store.read().getSettings().getAuth().getUsername();
+        store.update(null, c -> {
+            c.getSettings().getAuth().setUsername("tag-test");
+            return null;
+        });
+        String afterAuthChange = etagOf(get("/api/settings"));
+        store.update(null, c -> {
+            c.getSettings().getAuth().setUsername(username);
+            return null;
+        });
+        assertThat(afterAuthChange).isEqualTo(tag);
+    }
+
+    @Test
     void malformedIfMatchIs400() throws Exception {
-        mvc.perform(jsonBody(put("/api/settings"), "{}").header("If-Match", "\"abc\""))
+        mvc.perform(jsonBody(put("/api/settings"), "{}").header("If-Match", "abc"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Bad Request"));
     }
@@ -235,8 +349,7 @@ class ApiTest {
                 .andExpect(jsonPath("$[0].default").doesNotExist());
 
         mvc.perform(delete("/api/tabs/{id}", id).with(csrf()))
-                .andExpect(status().isNoContent())
-                .andExpect(header().string("ETag", etag(store.revision())));
+                .andExpect(status().isNoContent());
     }
 
     @Test
@@ -318,7 +431,7 @@ class ApiTest {
         MockMultipartFile png = new MockMultipartFile("file", "wall.png", "image/png", PNG);
         MvcResult result = mvc.perform(multipart("/api/settings/background").file(png).with(csrf()))
                 .andExpect(status().isOk())
-                .andExpect(header().string("ETag", etag(store.revision())))
+                .andExpect(header().string("ETag", matchesPattern("\"[0-9a-f]{16}\"")))
                 .andExpect(jsonPath("$.background.source").value("upload"))
                 .andExpect(jsonPath("$.background.value").value("wall.png"))
                 .andReturn();

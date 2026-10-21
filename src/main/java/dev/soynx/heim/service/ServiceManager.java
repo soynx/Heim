@@ -17,6 +17,8 @@ import dev.soynx.heim.api.dto.ServiceDto;
 import dev.soynx.heim.api.dto.ServiceRequest;
 import dev.soynx.heim.config.ConfigStore;
 import dev.soynx.heim.config.IdGenerator;
+import dev.soynx.heim.config.ResourceTags;
+import dev.soynx.heim.config.Tagged;
 import dev.soynx.heim.config.Versioned;
 import dev.soynx.heim.config.model.Extensible;
 import dev.soynx.heim.config.model.HeimConfig;
@@ -39,20 +41,22 @@ public class ServiceManager {
         this.store = store;
     }
 
-    public Versioned<List<ServiceDto>> list() {
+    public Tagged<List<ServiceDto>> list() {
         HeimConfig config = store.read();
         List<ServiceDto> services = config.getServices().stream().map(s -> toDto(config, s)).toList();
-        return new Versioned<>(services, config.getRevision());
+        return new Tagged<>(services, listTag(config));
     }
 
-    public Versioned<ServiceDto> get(String id) {
+    public Tagged<ServiceDto> get(String id) {
         HeimConfig config = store.read();
         Service service = config.findService(id).orElseThrow(() -> NotFoundException.service(id));
-        return new Versioned<>(toDto(config, service), config.getRevision());
+        return tagged(toDto(config, service));
     }
 
-    public Versioned<ServiceDto> create(ServiceRequest request, Long expectedRevision) {
-        return store.update(expectedRevision, config -> {
+    /** {@code expectedTag} is checked against the service list tag (see {@link #listTag}). */
+    public Tagged<ServiceDto> create(ServiceRequest request, String expectedTag) {
+        return tagged(store.update(null, config -> {
+            ResourceTags.check(expectedTag, listTag(config), "Service list");
             Service service = new Service();
             service.setId(IdGenerator.serviceId());
             service.setCreatedAt(Instant.now());
@@ -63,28 +67,51 @@ public class ServiceManager {
                     : config.getTabs().stream().filter(Tab::isDefault).map(Tab::getId).toList();
             Membership.setTabs(config, service.getId(), validTabIds(config, tabIds));
             return toDto(config, service);
-        });
+        }).value());
     }
 
-    public Versioned<ServiceDto> update(String id, ServiceRequest request, Long expectedRevision) {
-        return store.update(expectedRevision, config -> {
+    public Tagged<ServiceDto> update(String id, ServiceRequest request, String expectedTag) {
+        return tagged(store.update(null, config -> {
             Service service = config.findService(id).orElseThrow(() -> NotFoundException.service(id));
+            checkTag(expectedTag, config, service);
             apply(service, request);
             if (request.tabIds() != null) {
                 Membership.setTabs(config, id, validTabIds(config, request.tabIds()));
             }
             return toDto(config, service);
-        });
+        }).value());
     }
 
-    public Versioned<Void> delete(String id, Long expectedRevision) {
-        return store.update(expectedRevision, config -> {
-            if (!config.getServices().removeIf(s -> s.getId().equals(id))) {
-                throw NotFoundException.service(id);
-            }
+    public Versioned<Void> delete(String id, String expectedTag) {
+        return store.update(null, config -> {
+            Service service = config.findService(id).orElseThrow(() -> NotFoundException.service(id));
+            checkTag(expectedTag, config, service);
+            config.getServices().remove(service);
             Membership.removeEverywhere(config, id);
             return null;
         });
+    }
+
+    /**
+     * Tag of a service: its API representation without the server-managed {@code icon.cachedFile}
+     * (written by background icon fetches) and {@code updatedAt}.
+     */
+    public static String tagOf(ServiceDto service) {
+        return ResourceTags.of(service, "icon.cachedFile", "updatedAt");
+    }
+
+    /** Tag of the service list: the ordered service ids, so it changes on create and delete only. */
+    static String listTag(HeimConfig config) {
+        return ResourceTags.of(config.getServices().stream().map(Service::getId).toList());
+    }
+
+    /** For use inside a {@link ConfigStore#update} mutator. */
+    public static void checkTag(String expectedTag, HeimConfig config, Service service) {
+        ResourceTags.check(expectedTag, tagOf(toDto(config, service)), "Service " + service.getId());
+    }
+
+    private static Tagged<ServiceDto> tagged(ServiceDto service) {
+        return new Tagged<>(service, tagOf(service));
     }
 
     private static ServiceDto toDto(HeimConfig config, Service service) {
@@ -104,6 +131,8 @@ public class ServiceManager {
 
     /** Overwrites the service's editable fields from the request. */
     private static void apply(Service service, ServiceRequest request) {
+        // Read before the links are replaced: kept links are updated in place.
+        String previousFaviconUrl = service.faviconLink().map(Link::getUrl).orElse(null);
         service.setName(request.name().trim());
         service.setDescription(request.description());
         service.setColor(request.color());
@@ -129,6 +158,10 @@ public class ServiceManager {
         String primary = linkIds.get(request.primaryLinkId());
         service.setPrimaryLinkId(primary != null || links.isEmpty() ? primary : links.getFirst().getId());
         service.setIcon(icon(request.icon(), previousIcon, linkIds));
+        if (service.getIcon().getSource() == IconSource.FAVICON
+                && !Objects.equals(previousFaviconUrl, service.faviconLink().map(Link::getUrl).orElse(null))) {
+            service.getIcon().setCachedFile(null); // the favicon comes from another page now: fetch again
+        }
         service.setUpdatedAt(Instant.now());
     }
 

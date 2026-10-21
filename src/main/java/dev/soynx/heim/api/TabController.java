@@ -17,11 +17,16 @@ import org.springframework.web.bind.annotation.RestController;
 import dev.soynx.heim.api.dto.GroupRequest;
 import dev.soynx.heim.api.dto.TabOrderRequest;
 import dev.soynx.heim.api.dto.TabRequest;
-import dev.soynx.heim.config.Versioned;
+import dev.soynx.heim.config.Tagged;
 import dev.soynx.heim.config.model.Tab;
 import dev.soynx.heim.service.TabManager;
 import jakarta.validation.Valid;
 
+/**
+ * Tabs. A single tab's endpoints use that tab's ETag; {@code GET /api/tabs}, {@code POST} and
+ * {@code PUT /order} use the tab order tag, which only changes when tabs are added, removed or
+ * reordered.
+ */
 @RestController
 @RequestMapping("/api/tabs")
 public class TabController {
@@ -40,32 +45,38 @@ public class TabController {
     @PostMapping
     public ResponseEntity<Tab> create(@Valid @RequestBody TabRequest request,
             @RequestHeader(name = ETags.IF_MATCH, required = false) String ifMatch) {
-        Versioned<Tab> created = tabs.create(request, ETags.expectedRevision(ifMatch));
+        Tagged<Tab> created = tabs.create(request, ETags.expected(ifMatch));
         return ETags.created(URI.create("/api/tabs/" + created.value().getId()), created);
     }
 
     @PutMapping("/order")
     public ResponseEntity<List<Tab>> reorder(@Valid @RequestBody TabOrderRequest request,
             @RequestHeader(name = ETags.IF_MATCH, required = false) String ifMatch) {
-        return ETags.ok(tabs.reorder(request.tabIds(), ETags.expectedRevision(ifMatch)));
+        return ETags.ok(tabs.reorder(request.tabIds(), ETags.expected(ifMatch)));
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<Tab> get(@PathVariable String id) {
+        return ETags.ok(tabs.get(id));
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<Tab> update(@PathVariable String id, @Valid @RequestBody TabRequest request,
             @RequestHeader(name = ETags.IF_MATCH, required = false) String ifMatch) {
-        return ETags.ok(tabs.update(id, request, ETags.expectedRevision(ifMatch)));
+        return ETags.ok(tabs.update(id, request, ETags.expected(ifMatch)));
     }
 
     /** Body: the tab's groups in order, each with its ordered service ids. */
     @PutMapping("/{id}/groups")
     public ResponseEntity<Tab> setGroups(@PathVariable String id, @RequestBody List<@Valid GroupRequest> groups,
             @RequestHeader(name = ETags.IF_MATCH, required = false) String ifMatch) {
-        return ETags.ok(tabs.setGroups(id, groups, ETags.expectedRevision(ifMatch)));
+        return ETags.ok(tabs.setGroups(id, groups, ETags.expected(ifMatch)));
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable String id,
             @RequestHeader(name = ETags.IF_MATCH, required = false) String ifMatch) {
-        return ETags.noContent(tabs.delete(id, ETags.expectedRevision(ifMatch)));
+        tabs.delete(id, ETags.expected(ifMatch));
+        return ResponseEntity.noContent().build();
     }
 }

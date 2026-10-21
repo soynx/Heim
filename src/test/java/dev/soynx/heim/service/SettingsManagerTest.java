@@ -118,8 +118,8 @@ class SettingsManagerTest {
     }
 
     @Test
-    void uploadWithStaleRevisionLeavesNoFile() throws IOException {
-        long stale = store.revision() - 1;
+    void uploadWithStaleTagLeavesNoFile() throws IOException {
+        String stale = "stale";
         assertThatThrownBy(() -> settings.uploadBackground(file(PNG), stale))
                 .isInstanceOf(RevisionConflictException.class);
         assertThat(uploadCount()).isZero();

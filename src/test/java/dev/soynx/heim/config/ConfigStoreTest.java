@@ -193,10 +193,8 @@ class ConfigStoreTest {
             c.getSettings().setTitle("lost");
             return null;
         }))
-                .isInstanceOfSatisfying(RevisionConflictException.class, e -> {
-                    assertThat(e.expected()).isEqualTo(rev - 1);
-                    assertThat(e.actual()).isEqualTo(rev);
-                });
+                .isInstanceOfSatisfying(RevisionConflictException.class,
+                        e -> assertThat(e.currentTag()).isEqualTo(String.valueOf(rev)));
 
         assertThat(store.revision()).isEqualTo(rev);
         assertThat(store.read().getSettings().getTitle()).isEqualTo("Heim");

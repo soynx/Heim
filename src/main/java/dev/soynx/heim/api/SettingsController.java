@@ -36,12 +36,12 @@ public class SettingsController {
     @PutMapping
     public ResponseEntity<SettingsDto> update(@Valid @RequestBody SettingsRequest request,
             @RequestHeader(name = ETags.IF_MATCH, required = false) String ifMatch) {
-        return ETags.ok(settings.update(request, ETags.expectedRevision(ifMatch)));
+        return ETags.ok(settings.update(request, ETags.expected(ifMatch)));
     }
 
     @PostMapping(path = "/background", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<SettingsDto> uploadBackground(@RequestPart("file") MultipartFile file,
             @RequestHeader(name = ETags.IF_MATCH, required = false) String ifMatch) {
-        return ETags.ok(settings.uploadBackground(file, ETags.expectedRevision(ifMatch)));
+        return ETags.ok(settings.uploadBackground(file, ETags.expected(ifMatch)));
     }
 }
