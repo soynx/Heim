@@ -68,6 +68,21 @@ class ProbeSchedulerTest {
     }
 
     @Test
+    void olderConfigsAreIgnored() {
+        HeimConfig newer = config(link("b", true, "http://b"));
+        newer.setRevision(5);
+        HeimConfig older = config(link("a", true, "http://a"));
+        older.setRevision(4);
+
+        scheduler.sync(newer);
+        scheduler.sync(older);
+
+        assertThat(scheduler.scheduledCount()).isEqualTo(1);
+        await().atMost(Duration.ofSeconds(2)).until(() -> registry.snapshot().links().containsKey("b"));
+        assertThat(registry.snapshot().links()).containsOnlyKeys("b");
+    }
+
+    @Test
     void probeUrlOverridesLinkUrl() {
         Link link = link("a", true, "http://a");
         link.getProbe().setUrl("http://a/health");

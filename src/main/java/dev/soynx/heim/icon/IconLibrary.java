@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -44,9 +45,9 @@ public class IconLibrary {
     private final IconHttp http;
     private final String baseUrl;
 
-    private Map<String, Entry> index;
-    private Instant loadedAt;
-    private Instant lastAttempt;
+    private volatile Loaded loaded;
+    private volatile Instant lastFailure;
+    private final AtomicBoolean refreshing = new AtomicBoolean();
 
     public IconLibrary(IconHttp http, @Value("${heim.icons.library-url:" + DEFAULT_BASE_URL + "}") String baseUrl) {
         this.http = http;
@@ -173,26 +174,56 @@ public class IconLibrary {
     }
 
     /** Cached for 24h; a failed load keeps the stale copy and is retried after a pause. */
-    private synchronized Map<String, Entry> index() {
-        Instant now = Instant.now();
-        boolean fresh = index != null && loadedAt.plus(INDEX_TTL).isAfter(now);
-        boolean pausing = lastAttempt != null && lastAttempt.plus(RETRY_AFTER_FAILURE).isAfter(now);
-        if (fresh || pausing) {
-            return index != null ? index : Map.of();
+    private record Loaded(Map<String, Entry> index, Instant at) {
+    }
+
+    /**
+     * The first load makes callers wait; later refreshes are done by one caller while everyone else
+     * keeps using the stale copy.
+     */
+    private Map<String, Entry> index() {
+        Loaded current = loaded;
+        if (current != null) {
+            if (isStale(current) && !isPausing() && refreshing.compareAndSet(false, true)) {
+                try {
+                    load();
+                } finally {
+                    refreshing.set(false);
+                }
+            }
+            return loaded.index();
         }
-        lastAttempt = now;
+        synchronized (this) {
+            if (loaded == null && !isPausing()) {
+                load();
+            }
+        }
+        current = loaded;
+        return current != null ? current.index() : Map.of();
+    }
+
+    private static boolean isStale(Loaded loaded) {
+        return !loaded.at().plus(INDEX_TTL).isAfter(Instant.now());
+    }
+
+    private boolean isPausing() {
+        Instant failed = lastFailure;
+        return failed != null && failed.plus(RETRY_AFTER_FAILURE).isAfter(Instant.now());
+    }
+
+    private void load() {
         URI uri = URI.create(baseUrl + "/metadata.json");
         try {
             IconHttp.Response response = http.get(uri, false, MAX_INDEX_BYTES, false, INDEX_TIMEOUT)
                     .filter(IconHttp.Response::isSuccess)
                     .orElseThrow(() -> new IOException("download failed"));
-            index = parseIndex(response.body());
-            loadedAt = now;
-            lastAttempt = null;
+            Map<String, Entry> index = parseIndex(response.body());
+            loaded = new Loaded(index, Instant.now());
+            lastFailure = null;
             log.info("Loaded icon library index with {} icons", index.size());
         } catch (IOException | RuntimeException e) {
+            lastFailure = Instant.now();
             log.info("Could not load icon library index from {}: {}", uri, e.getMessage());
         }
-        return index != null ? index : Map.of();
     }
 }
