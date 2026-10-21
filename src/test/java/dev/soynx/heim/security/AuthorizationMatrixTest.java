@@ -72,6 +72,7 @@ class AuthorizationMatrixTest {
             new Endpoint(HttpMethod.GET, "/api/settings", Access.EDIT),
             new Endpoint(HttpMethod.GET, "/api/services", Access.EDIT),
             new Endpoint(HttpMethod.GET, "/api/tabs", Access.EDIT),
+            new Endpoint(HttpMethod.GET, "/api/tabs/tab_missing", Access.EDIT),
             new Endpoint(HttpMethod.GET, "/api/icons/library?q=proxmox", Access.EDIT),
             new Endpoint(HttpMethod.GET, "/api/backup/export", Access.EDIT),
             new Endpoint(HttpMethod.GET, "/api/docs", Access.EDIT),

@@ -27,6 +27,7 @@ import dev.soynx.heim.config.model.ProbeConfig;
 import dev.soynx.heim.config.model.Tab;
 import dev.soynx.heim.error.BadRequestException;
 import dev.soynx.heim.error.NotFoundException;
+import dev.soynx.heim.error.RevisionConflictException;
 
 class ServiceManagerTest {
 
@@ -376,6 +377,108 @@ class ServiceManagerTest {
         assertThat(changed.icon().getCachedFile()).isNull();
     }
 
+    @Test
+    void cachedFaviconClearedWhenItsLinkUrlChanges() {
+        ServiceDto created = services.create(service("S", null, icon(IconSource.FAVICON, null), null,
+                link(null, "https://a.lan"), link(null, "https://b.lan")), null).value();
+        String a = created.links().get(0).getId();
+        String b = created.links().get(1).getId();
+        IconRef fromB = icon(IconSource.FAVICON, null);
+        fromB.setFaviconLinkId(b);
+        services.update(created.id(), service("S", a, fromB, null, link(a, "https://a.lan"), link(b, "https://b.lan")),
+                null);
+        setCachedFile(created.id(), "svc_fav.png");
+
+        // Another link's URL changes: the favicon page is the same.
+        IconRef stillB = icon(IconSource.FAVICON, null);
+        stillB.setFaviconLinkId(b);
+        assertThat(services.update(created.id(), service("S", a, stillB, null,
+                link(a, "https://a2.lan"), link(b, "https://b.lan")), null).value().icon().getCachedFile())
+                .isEqualTo("svc_fav.png");
+
+        // The favicon link's own URL changes.
+        IconRef againB = icon(IconSource.FAVICON, null);
+        againB.setFaviconLinkId(b);
+        assertThat(services.update(created.id(), service("S", a, againB, null,
+                link(a, "https://a2.lan"), link(b, "https://b2.lan")), null).value().icon().getCachedFile())
+                .isNull();
+    }
+
+    @Test
+    void cachedFaviconClearedWhenPrimaryLinkUrlChanges() {
+        ServiceDto created = services.create(service("S", null, icon(IconSource.FAVICON, null), null,
+                link(null, "https://a.lan")), null).value();
+        String a = created.links().getFirst().getId();
+        setCachedFile(created.id(), "svc_fav.png");
+
+        assertThat(services.update(created.id(), service("S", a, icon(IconSource.FAVICON, null), null,
+                link(a, "https://a2.lan")), null).value().icon().getCachedFile()).isNull();
+    }
+
+    @Test
+    void cachedFaviconClearedWhenPrimaryLinkChangesWithoutFaviconLink() {
+        ServiceDto created = services.create(service("S", null, icon(IconSource.FAVICON, null), null,
+                link(null, "https://a.lan"), link(null, "https://b.lan")), null).value();
+        String a = created.links().get(0).getId();
+        String b = created.links().get(1).getId();
+        assertThat(created.primaryLinkId()).isEqualTo(a);
+        setCachedFile(created.id(), "svc_fav.png");
+
+        assertThat(services.update(created.id(), service("S", b, icon(IconSource.FAVICON, null), null,
+                link(a, "https://a.lan"), link(b, "https://b.lan")), null).value().icon().getCachedFile()).isNull();
+    }
+
+    @Test
+    void nonFaviconIconKeptWhenPrimaryLinkUrlChanges() {
+        ServiceDto created = services.create(service("S", null, icon(IconSource.LIBRARY, "proxmox"), null,
+                link(null, "https://a.lan")), null).value();
+        String a = created.links().getFirst().getId();
+        setCachedFile(created.id(), "svc_lib.svg");
+
+        assertThat(services.update(created.id(), service("S", a, icon(IconSource.LIBRARY, "proxmox"), null,
+                link(a, "https://a2.lan")), null).value().icon().getCachedFile()).isEqualTo("svc_lib.svg");
+    }
+
+    // --- per-resource tags ----------------------------------------------------------------
+
+    @Test
+    void backgroundIconCacheDoesNotInvalidateServiceTag() {
+        String id = services.create(service("S", null, link(null, "https://a.lan")), null).value().id();
+        String tag = services.get(id).etag();
+
+        setCachedFile(id, "svc_fav.png"); // what a background icon fetch does
+
+        assertThat(services.get(id).etag()).isEqualTo(tag);
+        ServiceDto saved = services.update(id, service("Renamed", null, link(null, "https://a.lan")), tag).value();
+        assertThat(saved.name()).isEqualTo("Renamed");
+    }
+
+    @Test
+    void staleServiceTagIsConflictAndNothingSaved() {
+        String id = services.create(service("S", null), null).value().id();
+        String tag = services.get(id).etag();
+        services.update(id, service("Edited elsewhere", null), null);
+        long rev = store.revision();
+
+        assertThatThrownBy(() -> services.update(id, service("Mine", null), tag))
+                .isInstanceOfSatisfying(RevisionConflictException.class,
+                        e -> assertThat(e.currentTag()).isEqualTo(services.get(id).etag()));
+        assertThatThrownBy(() -> services.delete(id, tag)).isInstanceOf(RevisionConflictException.class);
+        assertThat(store.revision()).isEqualTo(rev);
+        assertThat(store.read().findService(id).orElseThrow().getName()).isEqualTo("Edited elsewhere");
+    }
+
+    @Test
+    void editingOneServiceDoesNotInvalidateAnother() {
+        String a = services.create(service("A", null), null).value().id();
+        String b = services.create(service("B", null), null).value().id();
+        String tagB = services.get(b).etag();
+
+        services.update(a, service("A2", null), services.get(a).etag());
+
+        assertThat(services.update(b, service("B2", null), tagB).value().name()).isEqualTo("B2");
+    }
+
     // --- forward compatibility through the API --------------------------------------------
 
     @Test
@@ -436,13 +539,13 @@ class ServiceManagerTest {
     }
 
     @Test
-    void listReturnsAllWithRevision() {
+    void listReturnsAllWithListTag() {
         services.create(service("A", null), null);
         services.create(service("B", List.of()), null);
 
         var listed = services.list();
 
-        assertThat(listed.revision()).isEqualTo(store.revision());
+        assertThat(listed.etag()).isEqualTo(ServiceManager.listTag(store.read()));
         assertThat(listed.value()).extracting(ServiceDto::name).containsExactly("A", "B");
         assertThat(listed.value()).extracting(ServiceDto::tabIds)
                 .containsExactly(List.of(defaultTab), List.of());

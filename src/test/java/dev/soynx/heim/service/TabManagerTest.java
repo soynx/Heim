@@ -25,6 +25,7 @@ import dev.soynx.heim.config.model.IconSource;
 import dev.soynx.heim.config.model.Tab;
 import dev.soynx.heim.error.BadRequestException;
 import dev.soynx.heim.error.NotFoundException;
+import dev.soynx.heim.error.RevisionConflictException;
 
 class TabManagerTest {
 
@@ -310,5 +311,38 @@ class TabManagerTest {
     void tabIconUrlMustBeHttp() {
         assertThatThrownBy(() -> tabs.create(tabWithIcon("X", IconSource.URL, "javascript:alert(1)", null), null))
                 .isInstanceOf(BadRequestException.class);
+    }
+
+    // --- per-resource tags ----------------------------------------------------------------
+
+    @Test
+    void tabTagIgnoresCachedIconAndOtherTabs() {
+        Tab media = tabs.create(tabWithIcon("Media", IconSource.LIBRARY, "film", null), null).value();
+        String tag = tabs.get(media.getId()).etag();
+
+        setTabCachedFile(media.getId(), "tab_cached.svg");
+        tabs.update(home, tab("Home renamed"), null);
+
+        assertThat(tabs.get(media.getId()).etag()).isEqualTo(tag);
+        assertThat(tabs.update(media.getId(), tabWithIcon("Media 2", IconSource.LIBRARY, "film", null), tag)
+                .value().getName()).isEqualTo("Media 2");
+        assertThatThrownBy(() -> tabs.setGroups(media.getId(), List.of(), tag))
+                .isInstanceOf(RevisionConflictException.class);
+        assertThatThrownBy(() -> tabs.delete(media.getId(), tag)).isInstanceOf(RevisionConflictException.class);
+    }
+
+    @Test
+    void orderTagChangesOnlyWithTheTabList() {
+        String tag = tabs.list().etag();
+        tabs.update(home, tab("Renamed"), null);
+        assertThat(tabs.list().etag()).isEqualTo(tag);
+
+        String b = tabs.create(tab("B"), tag).value().getId();
+        assertThatThrownBy(() -> tabs.reorder(List.of(b, home), tag)).isInstanceOf(RevisionConflictException.class);
+        assertThatThrownBy(() -> tabs.create(tab("C"), tag)).isInstanceOf(RevisionConflictException.class);
+
+        var reordered = tabs.reorder(List.of(b, home), tabs.list().etag());
+        assertThat(reordered.etag()).isEqualTo(tabs.list().etag());
+        assertThat(reordered.value()).extracting(Tab::getId).containsExactly(b, home);
     }
 }

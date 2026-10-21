@@ -22,6 +22,13 @@ public class Service extends Extensible {
         return links.stream().filter(l -> linkId != null && linkId.equals(l.getId())).findFirst();
     }
 
+    /** The link a favicon icon comes from: the icon's favicon link, else the primary link, else the first. */
+    public Optional<Link> faviconLink() {
+        return findLink(icon != null ? icon.getFaviconLinkId() : null)
+                .or(() -> findLink(primaryLinkId))
+                .or(() -> links.stream().findFirst());
+    }
+
     public String getId() {
         return id;
     }

@@ -89,8 +89,7 @@ export async function serviceEditorView(root, [id]) {
   async function refreshIcon() {
     const res = await attempt(() => api.services.refreshIcon(id), 'Icon refresh failed');
     if (!res) return;
-    iconPicker.setPreview(res.data);
-    etag = null; // the refresh changed the config revision; do not trip over our own change
+    iconPicker.setPreview(res.data); // the cached icon is not part of the ETag, so ours stays valid
     showInfo(res.data.icon?.cachedFile ? 'Icon refreshed.' : 'No icon could be fetched.');
   }
 

@@ -59,7 +59,7 @@ public class IconController {
     @PostMapping(path = "/api/services/{id}/icon", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ServiceDto> upload(@PathVariable String id, @RequestPart("file") MultipartFile file,
             @RequestHeader(name = ETags.IF_MATCH, required = false) String ifMatch) {
-        return ETags.ok(icons.upload(id, file, ETags.expectedRevision(ifMatch)));
+        return ETags.ok(icons.upload(id, file, ETags.expected(ifMatch)));
     }
 
     @PostMapping("/api/services/{id}/icon/refresh")

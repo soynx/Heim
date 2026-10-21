@@ -16,10 +16,14 @@ import org.springframework.web.bind.annotation.RestController;
 
 import dev.soynx.heim.api.dto.ServiceDto;
 import dev.soynx.heim.api.dto.ServiceRequest;
-import dev.soynx.heim.config.Versioned;
+import dev.soynx.heim.config.Tagged;
 import dev.soynx.heim.service.ServiceManager;
 import jakarta.validation.Valid;
 
+/**
+ * Services. A single service's endpoints use that service's ETag; {@code GET /api/services} and
+ * {@code POST} use the service list tag, which only changes when services are added or removed.
+ */
 @RestController
 @RequestMapping("/api/services")
 public class ServiceController {
@@ -43,19 +47,20 @@ public class ServiceController {
     @PostMapping
     public ResponseEntity<ServiceDto> create(@Valid @RequestBody ServiceRequest request,
             @RequestHeader(name = ETags.IF_MATCH, required = false) String ifMatch) {
-        Versioned<ServiceDto> created = services.create(request, ETags.expectedRevision(ifMatch));
+        Tagged<ServiceDto> created = services.create(request, ETags.expected(ifMatch));
         return ETags.created(URI.create("/api/services/" + created.value().id()), created);
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<ServiceDto> update(@PathVariable String id, @Valid @RequestBody ServiceRequest request,
             @RequestHeader(name = ETags.IF_MATCH, required = false) String ifMatch) {
-        return ETags.ok(services.update(id, request, ETags.expectedRevision(ifMatch)));
+        return ETags.ok(services.update(id, request, ETags.expected(ifMatch)));
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable String id,
             @RequestHeader(name = ETags.IF_MATCH, required = false) String ifMatch) {
-        return ETags.noContent(services.delete(id, ETags.expectedRevision(ifMatch)));
+        services.delete(id, ETags.expected(ifMatch));
+        return ResponseEntity.noContent().build();
     }
 }
