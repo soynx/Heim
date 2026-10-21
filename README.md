@@ -36,7 +36,7 @@ services:
 ```
 
 ```sh
-git clone <repository-url> heim
+git clone https://github.com/soynx/Heim.git heim
 cd heim
 docker compose up -d --build
 ```
@@ -69,3 +69,7 @@ HEIM_DATA_DIR=./data java -jar target/heim.jar
 ## Tech
 
 Java 21 and Spring Boot on the backend. The frontend is plain HTML, CSS and JavaScript, with no build step and self-hosted fonts, so it works offline.
+
+## License
+
+[MIT](LICENSE)

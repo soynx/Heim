@@ -18,3 +18,6 @@ data/
 
 # Local-only Dockerfile with this PC's corporate root CA
 .Dockerfile-cert
+
+# Design source files (not part of the repo)
+.design/
