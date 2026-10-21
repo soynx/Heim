@@ -29,8 +29,10 @@ import dev.soynx.heim.config.DataPaths;
 import dev.soynx.heim.config.HeimProperties;
 import dev.soynx.heim.config.migration.MigrationChain;
 import dev.soynx.heim.config.migration.V0ToV1Migration;
+import dev.soynx.heim.config.model.IconRef;
 import dev.soynx.heim.config.model.IconSource;
 import dev.soynx.heim.config.model.Service;
+import dev.soynx.heim.config.model.Tab;
 import dev.soynx.heim.error.BadRequestException;
 import dev.soynx.heim.icon.IconFetcher.IconFile;
 
@@ -57,6 +59,15 @@ class IconServiceTest {
         IconFetcher fetcher = new IconFetcher(null, null) {
             @Override
             public Optional<IconFile> fetch(Service service) {
+                return fetchAny();
+            }
+
+            @Override
+            public Optional<IconFile> fetch(Tab tab) {
+                return fetchAny();
+            }
+
+            private Optional<IconFile> fetchAny() {
                 fetches.incrementAndGet();
                 try {
                     release.await(5, TimeUnit.SECONDS);
@@ -121,6 +132,41 @@ class IconServiceTest {
         try (var listing = Files.list(paths.iconsDir())) {
             assertThat(listing.map(p -> p.getFileName().toString())).containsExactly(cachedFile(id));
         }
+    }
+
+    @Test
+    void cachedFileMissingOnDiskIsFetchedAgain() throws InterruptedException, IOException {
+        String id = addService(IconSource.LIBRARY, "proxmox");
+        await(() -> cachedFile(id) != null);
+        String lost = cachedFile(id);
+        Files.delete(paths.iconsDir().resolve(lost));
+
+        icons.scan(store.read());
+
+        await(() -> !lost.equals(cachedFile(id)));
+        assertThat(paths.iconsDir().resolve(cachedFile(id))).exists();
+    }
+
+    @Test
+    void tabIconsFromUrlOrLibraryAreFetchedButNotFavicons() throws InterruptedException {
+        String tabId = store.update(null, config -> {
+            Tab tab = config.getTabs().getFirst();
+            IconRef icon = new IconRef();
+            icon.setSource(IconSource.FAVICON);
+            tab.setIcon(icon);
+            return tab.getId();
+        }).value();
+        Thread.sleep(200);
+        assertThat(fetches.get()).isZero();
+
+        store.update(null, config -> {
+            IconRef icon = config.findTab(tabId).orElseThrow().getIcon();
+            icon.setSource(IconSource.LIBRARY);
+            icon.setValue("home");
+            return null;
+        });
+        await(() -> store.read().findTab(tabId).orElseThrow().getIcon().getCachedFile() != null);
+        assertThat(store.read().findTab(tabId).orElseThrow().getIcon().getCachedFile()).startsWith(tabId + "_");
     }
 
     @Test

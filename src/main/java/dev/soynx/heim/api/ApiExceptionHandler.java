@@ -42,7 +42,7 @@ public class ApiExceptionHandler {
     ResponseEntity<ApiError> conflict(RevisionConflictException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .eTag(ETags.of(e.currentTag()))
-                .body(new ApiError(HttpStatus.CONFLICT.getReasonPhrase(), e.getMessage()));
+                .body(ApiError.of(HttpStatus.CONFLICT, e.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -94,8 +94,6 @@ public class ApiExceptionHandler {
     }
 
     private static ResponseEntity<ApiError> error(HttpStatusCode status, String message) {
-        HttpStatus resolved = HttpStatus.resolve(status.value());
-        String reason = resolved != null ? resolved.getReasonPhrase() : String.valueOf(status.value());
-        return ResponseEntity.status(status).body(new ApiError(reason, message));
+        return ResponseEntity.status(status).body(ApiError.of(status, message));
     }
 }

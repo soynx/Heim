@@ -30,7 +30,11 @@ public class AuthSettingsService {
     }
 
     public AuthSettings current() {
-        return store.read().getSettings().getAuth();
+        return store.auth();
+    }
+
+    public boolean isAdmin(Authentication authentication) {
+        return AdminSession.isAdmin(authentication, current());
     }
 
     public AuthStatusResponse status(Authentication authentication) {

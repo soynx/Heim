@@ -21,7 +21,7 @@ public class ConfigUserDetailsService implements UserDetailsService {
 
     @Override
     public UserDetails loadUserByUsername(String username) {
-        AuthSettings auth = store.read().getSettings().getAuth();
+        AuthSettings auth = store.auth();
         if (!AdminSession.hasCredentials(auth) || !auth.getUsername().equals(username)) {
             throw new UsernameNotFoundException("Unknown user");
         }

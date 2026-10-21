@@ -11,6 +11,9 @@ public enum ImageType {
     GIF("gif", "image/gif"),
     WEBP("webp", "image/webp");
 
+    /** Enough leading bytes for {@link #detect}. */
+    public static final int SNIFF_LENGTH = 16;
+
     private final String extension;
     private final String mediaType;
 

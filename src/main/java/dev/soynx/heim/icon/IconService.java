@@ -17,6 +17,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -93,6 +94,32 @@ public class IconService {
                     : null;
             return new IconKey(icon.getSource(), icon.getValue(), icon.getFaviconLinkId(), target);
         }
+
+        static IconKey of(Tab tab) {
+            IconRef icon = tab.getIcon();
+            return new IconKey(icon.getSource(), icon.getValue(), icon.getFaviconLinkId(), null);
+        }
+    }
+
+    /** A service or a tab; their IDs never collide, so they share the in-flight and failure maps. */
+    private record Owner(String id, boolean tab) {
+
+        static Owner of(Service service) {
+            return new Owner(service.getId(), false);
+        }
+
+        static Owner of(Tab tab) {
+            return new Owner(tab.getId(), true);
+        }
+
+        Optional<IconRef> iconIn(HeimConfig config) {
+            return tab ? config.findTab(id).map(Tab::getIcon) : config.findService(id).map(Service::getIcon);
+        }
+
+        Optional<IconKey> keyIn(HeimConfig config) {
+            return tab ? config.findTab(id).filter(t -> t.getIcon() != null).map(IconKey::of)
+                    : config.findService(id).map(IconKey::of);
+        }
     }
 
     private record Failure(IconKey key, Instant at) {
@@ -150,8 +177,7 @@ public class IconService {
      * Uploaded icons have nothing to fetch and are returned unchanged.
      */
     public Tagged<ServiceDto> refresh(String serviceId) {
-        HeimConfig config = store.read();
-        Service service = config.findService(serviceId).orElseThrow(() -> NotFoundException.service(serviceId));
+        Service service = store.read().findService(serviceId).orElseThrow(() -> NotFoundException.service(serviceId));
         if (service.getIcon().getSource() != IconSource.UPLOAD) {
             IconKey key = IconKey.of(service);
             failures.remove(serviceId);
@@ -160,64 +186,82 @@ public class IconService {
                 failures.put(serviceId, new Failure(key, Instant.now()));
                 log.info("No icon found for service {} ({})", serviceId, key.source());
             } else {
-                Optional<ServiceDto> committed = commit(serviceId, key, icon.get(), true);
-                if (committed.isPresent()) {
-                    return tagged(committed.get());
-                }
+                commit(Owner.of(service), key, icon.get(), true);
             }
-            config = store.read();
-            service = config.findService(serviceId).orElseThrow(() -> NotFoundException.service(serviceId));
         }
+        HeimConfig config = store.read();
+        service = config.findService(serviceId).orElseThrow(() -> NotFoundException.service(serviceId));
         return tagged(toDto(config, service));
     }
 
-    /** Starts background fetches for services that lack a cached icon. */
+    /**
+     * Starts background fetches for services and tabs that lack a cached icon, or whose cached file is
+     * gone from disk. Tabs have no links, so only their URL and library icons are fetched.
+     */
     void scan(HeimConfig config) {
-        Instant now = Instant.now();
         for (Service service : config.getServices()) {
-            IconRef icon = service.getIcon();
-            if (icon == null || icon.getSource() == IconSource.UPLOAD || icon.getCachedFile() != null) {
-                continue;
+            if (needsFetch(service.getIcon())
+                    && !start(Owner.of(service), IconKey.of(service), () -> fetcher.fetch(service))) {
+                return;
             }
-            IconKey key = IconKey.of(service);
-            Failure failure = failures.get(service.getId());
-            if (failure != null && failure.key().equals(key) && failure.at().plus(FAILURE_BACKOFF).isAfter(now)) {
-                continue;
-            }
-            if (inFlight.putIfAbsent(service.getId(), key) != null) {
-                continue;
-            }
-            try {
-                executor.execute(() -> fetchInBackground(service, key));
-            } catch (RejectedExecutionException e) {
-                inFlight.remove(service.getId(), key);
-                return; // shutting down
+        }
+        for (Tab tab : config.getTabs()) {
+            IconRef icon = tab.getIcon();
+            if (needsFetch(icon) && icon.getSource() != IconSource.FAVICON
+                    && !start(Owner.of(tab), IconKey.of(tab), () -> fetcher.fetch(tab))) {
+                return;
             }
         }
     }
 
-    private void fetchInBackground(Service service, IconKey key) {
-        String id = service.getId();
+    private boolean needsFetch(IconRef icon) {
+        return icon != null && icon.getSource() != null && icon.getSource() != IconSource.UPLOAD && !isCached(icon);
+    }
+
+    private boolean isCached(IconRef icon) {
+        return icon.getCachedFile() != null && files.find(icon.getCachedFile()).isPresent();
+    }
+
+    /** Returns false if the executor is shutting down. */
+    private boolean start(Owner owner, IconKey key, Supplier<Optional<IconFetcher.IconFile>> fetch) {
+        Failure failure = failures.get(owner.id());
+        if (failure != null && failure.key().equals(key) && failure.at().plus(FAILURE_BACKOFF).isAfter(Instant.now())) {
+            return true;
+        }
+        if (inFlight.putIfAbsent(owner.id(), key) != null) {
+            return true;
+        }
+        try {
+            executor.execute(() -> fetchInBackground(owner, key, fetch));
+            return true;
+        } catch (RejectedExecutionException e) {
+            inFlight.remove(owner.id(), key);
+            return false;
+        }
+    }
+
+    private void fetchInBackground(Owner owner, IconKey key, Supplier<Optional<IconFetcher.IconFile>> fetch) {
+        String id = owner.id();
         boolean superseded = false;
         try {
             Optional<IconFetcher.IconFile> icon;
             fetchPermits.acquire();
             try {
-                icon = fetcher.fetch(service);
+                icon = fetch.get();
             } finally {
                 fetchPermits.release();
             }
             if (icon.isEmpty()) {
                 failures.put(id, new Failure(key, Instant.now()));
-                log.info("No icon found for service {} ({}); retrying in {}", id, key.source(), FAILURE_BACKOFF);
+                log.info("No icon found for {} ({}); retrying in {}", id, key.source(), FAILURE_BACKOFF);
             } else {
                 failures.remove(id);
-                superseded = commit(id, key, icon.get(), false).isEmpty();
+                superseded = !commit(owner, key, icon.get(), false);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (RuntimeException e) {
-            log.warn("Background icon fetch for service {} failed", id, e);
+            log.warn("Background icon fetch for {} failed", id, e);
         } finally {
             inFlight.remove(id, key);
         }
@@ -228,27 +272,27 @@ public class IconService {
     }
 
     /**
-     * Saves the icon file and references it, provided the service's icon definition still matches
+     * Saves the icon file and references it, provided the owner's icon definition still matches
      * {@code key} (and, unless {@code overwrite}, nothing else has cached an icon meanwhile).
      *
-     * @return the updated service, or empty if the result was discarded
+     * @return false if the result was discarded
      */
-    private Optional<ServiceDto> commit(String serviceId, IconKey key, IconFetcher.IconFile icon,
-            boolean overwrite) {
-        String stored = files.save(serviceId, icon);
+    private boolean commit(Owner owner, IconKey key, IconFetcher.IconFile icon, boolean overwrite) {
+        String stored = files.save(owner.id(), icon);
         pendingFiles.add(stored);
         try {
-            return Optional.of(store.update(null, config -> {
-                Service service = config.findService(serviceId).orElseThrow(Superseded::new);
-                if (!IconKey.of(service).equals(key) || !overwrite && service.getIcon().getCachedFile() != null) {
+            store.update(null, config -> {
+                IconRef ref = owner.iconIn(config).orElseThrow(Superseded::new);
+                if (!owner.keyIn(config).equals(Optional.of(key)) || !overwrite && isCached(ref)) {
                     throw new Superseded();
                 }
-                service.getIcon().setCachedFile(stored);
-                return toDto(config, service);
-            }).value());
+                ref.setCachedFile(stored);
+                return null;
+            });
+            return true;
         } catch (Superseded e) {
             files.delete(stored);
-            return Optional.empty();
+            return false;
         } catch (RuntimeException e) {
             files.delete(stored);
             throw e;

@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 
 import dev.soynx.heim.config.model.IconRef;
 import dev.soynx.heim.config.model.Service;
+import dev.soynx.heim.config.model.Tab;
 
 /** Downloads a service's icon from its configured source. Never throws; failures yield empty. */
 @Component
@@ -43,19 +44,27 @@ public class IconFetcher {
     }
 
     public Optional<IconFile> fetch(Service service) {
-        IconRef icon = service.getIcon();
+        return fetch(service.getId(), service.getIcon(), faviconTarget(service));
+    }
+
+    /** Tabs have no links, so a favicon icon yields nothing for them. */
+    public Optional<IconFile> fetch(Tab tab) {
+        return fetch(tab.getId(), tab.getIcon(), Optional.empty());
+    }
+
+    private Optional<IconFile> fetch(String ownerId, IconRef icon, Optional<FaviconTarget> faviconPage) {
         if (icon == null || icon.getSource() == null) {
             return Optional.empty();
         }
         try {
             return switch (icon.getSource()) {
-                case FAVICON -> faviconTarget(service).flatMap(link -> favicon(link.url(), link.ignoreTls()));
+                case FAVICON -> faviconPage.flatMap(link -> favicon(link.url(), link.ignoreTls()));
                 case LIBRARY -> firstValid(library.downloadUrls(icon.getValue()), false);
                 case URL -> parse(icon.getValue()).flatMap(uri -> download(uri, false));
                 case UPLOAD -> Optional.empty();
             };
         } catch (RuntimeException e) {
-            log.info("Icon fetch for service {} failed: {}", service.getId(), e.toString());
+            log.info("Icon fetch for {} failed: {}", ownerId, e.toString());
             return Optional.empty();
         }
     }

@@ -105,6 +105,23 @@ class ApiTest {
                 .andExpect(jsonPath("$.revision").value(store.revision()));
     }
 
+    @Test
+    void dashboardHidesProbeConfig() throws Exception {
+        String id = createService("{\"name\":\"nas\",\"links\":[{\"label\":\"LAN\",\"url\":\"https://nas.lan\","
+                + "\"probe\":{\"enabled\":true,\"url\":\"https://admin:s3cret@nas.lan/health\",\"ignoreTls\":true}}]}");
+        String dashboard = mvc.perform(get("/api/dashboard"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(dashboard).contains(id).doesNotContain("s3cret").doesNotContain("/health")
+                .doesNotContain("ignoreTls").doesNotContain("\"probe\"");
+        JsonNode link = json.readTree(dashboard).findParents("primaryLinkId").stream()
+                .filter(s -> s.path("id").asText().equals(id)).findFirst().orElseThrow()
+                .path("links").get(0);
+        assertThat(link.path("label").asText()).isEqualTo("LAN");
+        assertThat(link.path("url").asText()).isEqualTo("https://nas.lan");
+        assertThat(link.path("probeEnabled").asBoolean()).isTrue();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"/api/services", "/api/tabs", "/api/settings"})
     void getsCarryResourceETagIndependentOfRevision(String path) throws Exception {
@@ -127,7 +144,7 @@ class ApiTest {
         mvc.perform(get("/api/services/svc_missing0"))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.error").value("not-found"))
                 .andExpect(jsonPath("$.message").value(containsString("svc_missing0")));
     }
 
@@ -163,13 +180,13 @@ class ApiTest {
                 .andExpect(status().isConflict())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(header().string("ETag", current))
-                .andExpect(jsonPath("$.error").value("Conflict"))
+                .andExpect(jsonPath("$.error").value("conflict"))
                 .andExpect(jsonPath("$.message").isString());
 
         mvc.perform(jsonBody(post("/api/services"), "{\"name\":\"Late\"}").header("If-Match", "\"stale\""))
                 .andExpect(status().isConflict())
                 .andExpect(header().string("ETag", etagOf(get("/api/services"))))
-                .andExpect(jsonPath("$.error").value("Conflict"));
+                .andExpect(jsonPath("$.error").value("conflict"));
 
         assertThat(store.revision()).isEqualTo(rev);
         assertThat(store.read().getSettings().getTitle()).isEqualTo(title);
@@ -266,7 +283,7 @@ class ApiTest {
     void malformedIfMatchIs400() throws Exception {
         mvc.perform(jsonBody(put("/api/settings"), "{}").header("If-Match", "abc"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("Bad Request"));
+                .andExpect(jsonPath("$.error").value("bad-request"));
     }
 
     // --- validation -----------------------------------------------------------------------
@@ -291,7 +308,7 @@ class ApiTest {
         mvc.perform(jsonBody(post("/api/services"), body))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.error").value("bad-request"))
                 .andExpect(jsonPath("$.message").isNotEmpty());
         assertThat(store.revision()).isEqualTo(rev);
     }
@@ -323,7 +340,7 @@ class ApiTest {
     void invalidTabRequestsAre400() throws Exception {
         mvc.perform(jsonBody(post("/api/tabs"), "{\"name\":\"\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("Bad Request"));
+                .andExpect(jsonPath("$.error").value("bad-request"));
         mvc.perform(jsonBody(put("/api/tabs/order"), "{}"))
                 .andExpect(status().isBadRequest());
         mvc.perform(jsonBody(put("/api/tabs/order"), "{\"tabIds\":[]}"))
@@ -332,7 +349,7 @@ class ApiTest {
         String tabId = store.read().getTabs().getFirst().getId();
         mvc.perform(jsonBody(put("/api/tabs/{id}/groups", tabId), "[{\"name\":\"" + "x".repeat(101) + "\"}]"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("Bad Request"));
+                .andExpect(jsonPath("$.error").value("bad-request"));
     }
 
     @Test
@@ -383,7 +400,7 @@ class ApiTest {
         }
         mvc.perform(get("/api/settings"))
                 .andExpect(jsonPath("$.auth.passwordSet").value(true))
-                .andExpect(jsonPath("$.auth.username").value("admin"));
+                .andExpect(jsonPath("$.auth.username").doesNotExist()); // anonymous caller
         String afterPut = mvc.perform(jsonBody(put("/api/settings"), "{\"title\":\"Secretless\"}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(afterPut).doesNotContain("passwordHash").doesNotContain(HASH);
@@ -442,6 +459,7 @@ class ApiTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentType("image/png"))
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andExpect(header().string("Content-Security-Policy", "sandbox"))
                 .andExpect(content().bytes(PNG));
         mvc.perform(get("/api/dashboard"))
                 .andExpect(jsonPath("$.settings.background.source").value("upload"))
@@ -455,7 +473,7 @@ class ApiTest {
                 "<script>alert(1)</script>".getBytes());
         mvc.perform(multipart("/api/settings/background").file(text).with(csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("Bad Request"));
+                .andExpect(jsonPath("$.error").value("bad-request"));
         assertThat(store.revision()).isEqualTo(rev);
     }
 
@@ -463,7 +481,7 @@ class ApiTest {
     void backgroundUploadWithoutFileIs400() throws Exception {
         mvc.perform(multipart("/api/settings/background").with(csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("Bad Request"));
+                .andExpect(jsonPath("$.error").value("bad-request"));
     }
 
     @Test

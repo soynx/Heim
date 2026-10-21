@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -42,9 +43,14 @@ public class ProbeScheduler implements DisposableBean {
             Thread.ofPlatform().name("heim-probe-timer").daemon().factory());
     private final ExecutorService workers = Executors.newThreadPerTaskExecutor(
             Thread.ofVirtual().name("heim-probe-", 0).factory());
+    /** Snapshots go out from here so that a slow SSE client never holds up a config save. */
+    private final ExecutorService snapshots = Executors.newSingleThreadExecutor(
+            Thread.ofPlatform().name("heim-status-snapshot").daemon().factory());
 
     /** linkId -> running schedule; guarded by {@code this}. */
     private final Map<String, Scheduled> tasks = new HashMap<>();
+    /** Revision of the config the schedules reflect; guarded by {@code this}. */
+    private long syncedRevision = -1;
 
     public ProbeScheduler(ConfigStore store, HttpProber prober, StatusRegistry registry,
             StatusBroadcaster broadcaster) {
@@ -64,11 +70,26 @@ public class ProbeScheduler implements DisposableBean {
         sync(event.config());
     }
 
-    /** Re-syncs the schedules with {@code config}; cheap and non-blocking, so safe in event listeners. */
-    synchronized void sync(HeimConfig config) {
-        if (timer.isShutdown()) {
-            return;
+    /**
+     * Re-syncs the schedules with {@code config}; cheap and non-blocking, so safe in event listeners.
+     * Events are published outside the store lock and may arrive out of order, so older configs are ignored.
+     */
+    void sync(HeimConfig config) {
+        if (syncSchedules(config)) {
+            try {
+                snapshots.execute(broadcaster::snapshot);
+            } catch (RejectedExecutionException e) {
+                // Shutting down.
+            }
         }
+    }
+
+    /** Returns whether the set of probed links changed. */
+    private synchronized boolean syncSchedules(HeimConfig config) {
+        if (timer.isShutdown() || config.getRevision() < syncedRevision) {
+            return false;
+        }
+        syncedRevision = config.getRevision();
         Map<String, ProbeTarget> wanted = new LinkedHashMap<>();
         Map<String, List<String>> layout = new LinkedHashMap<>();
         for (Service service : config.getServices()) {
@@ -96,9 +117,7 @@ public class ProbeScheduler implements DisposableBean {
         });
         boolean layoutChanged = registry.retain(layout);
         wanted.forEach((linkId, target) -> tasks.computeIfAbsent(linkId, id -> schedule(target)));
-        if (layoutChanged) {
-            broadcaster.snapshot();
-        }
+        return layoutChanged;
     }
 
     private Scheduled schedule(ProbeTarget target) {
@@ -150,6 +169,7 @@ public class ProbeScheduler implements DisposableBean {
             tasks.clear();
         }
         timer.shutdownNow();
+        snapshots.shutdownNow();
         workers.shutdownNow();
         workers.awaitTermination(2, TimeUnit.SECONDS);
     }

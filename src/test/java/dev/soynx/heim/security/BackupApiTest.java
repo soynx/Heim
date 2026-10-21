@@ -62,6 +62,10 @@ class BackupApiTest {
     @Autowired
     DataPaths paths;
 
+    private static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0, 0, 0, 13, 'I', 'H', 'D', 'R'};
+    private static final byte[] JPEG = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0, 16, 'J', 'F', 'I', 'F'};
+    private static final byte[] PNG_B = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 1, 2, 3, 4};
+
     private final ObjectMapper json = new ObjectMapper();
 
     @BeforeEach
@@ -74,8 +78,8 @@ class BackupApiTest {
                 }
             }
         }
-        Files.writeString(paths.iconsDir().resolve("a.png"), "icon-a");
-        Files.writeString(paths.uploadsDir().resolve("bg.jpg"), "background");
+        Files.write(paths.iconsDir().resolve("a.png"), PNG);
+        Files.write(paths.uploadsDir().resolve("bg.jpg"), JPEG);
     }
 
     private byte[] export() throws Exception {
@@ -127,7 +131,7 @@ class BackupApiTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
         Map<String, byte[]> entries = unzip(zip);
         assertThat(entries).containsOnlyKeys("config.json", "icons/a.png", "uploads/bg.jpg");
-        assertThat(new String(entries.get("icons/a.png"), StandardCharsets.UTF_8)).isEqualTo("icon-a");
+        assertThat(entries.get("icons/a.png")).isEqualTo(PNG);
 
         String config = new String(entries.get("config.json"), StandardCharsets.UTF_8);
         assertThat(config).doesNotContain("$2a$").doesNotContain(SecurityTestSupport.USER);
@@ -152,7 +156,7 @@ class BackupApiTest {
             return null;
         });
         Files.delete(paths.iconsDir().resolve("a.png"));
-        Files.writeString(paths.iconsDir().resolve("b.png"), "icon-b");
+        Files.write(paths.iconsDir().resolve("b.png"), PNG_B);
         String hashBefore = store.read().getSettings().getAuth().getPasswordHash();
         var session = SecurityTestSupport.login(mvc);
 
@@ -165,9 +169,9 @@ class BackupApiTest {
 
         assertThat(revision).isEqualTo(store.revision());
         assertThat(store.read().getSettings().getTitle()).isEqualTo("Before export");
-        assertThat(paths.iconsDir().resolve("a.png")).hasContent("icon-a");
+        assertThat(paths.iconsDir().resolve("a.png")).hasBinaryContent(PNG);
         assertThat(paths.iconsDir().resolve("b.png")).doesNotExist();
-        assertThat(paths.uploadsDir().resolve("bg.jpg")).hasContent("background");
+        assertThat(paths.uploadsDir().resolve("bg.jpg")).hasBinaryContent(JPEG);
         AuthSettings auth = store.read().getSettings().getAuth();
         assertThat(auth.getPasswordHash()).isEqualTo(hashBefore);
         assertThat(auth.getUsername()).isEqualTo(SecurityTestSupport.USER);
@@ -184,8 +188,8 @@ class BackupApiTest {
                 "/tmp/evil.txt", "icons/sub/evil.txt", "icons/.hidden", "other.txt", "icons\\..\\evil.txt"}) {
             Map<String, byte[]> entries = new LinkedHashMap<>();
             entries.put("config.json", config);
-            entries.put("icons/new.png", "new".getBytes());
-            entries.put(evil, "pwned".getBytes());
+            entries.put("icons/new.png", PNG);
+            entries.put(evil, PNG);
             long revision = store.revision();
             importZip(zip(entries)).andExpect(status().isBadRequest());
             assertThat(store.revision()).as(evil).isEqualTo(revision);
@@ -202,13 +206,65 @@ class BackupApiTest {
         for (byte[] badConfig : new byte[][] {"not json".getBytes(), "[1,2]".getBytes()}) {
             Map<String, byte[]> entries = new LinkedHashMap<>();
             entries.put("config.json", badConfig);
-            entries.put("icons/new.png", "new".getBytes());
+            entries.put("icons/new.png", PNG);
             importZip(zip(entries)).andExpect(status().isBadRequest());
         }
-        importZip(zip(Map.of("icons/new.png", "new".getBytes()))).andExpect(status().isBadRequest());
+        importZip(zip(Map.of("icons/new.png", PNG))).andExpect(status().isBadRequest());
         importZip("definitely not a zip".getBytes()).andExpect(status().isBadRequest());
         assertThat(store.revision()).isEqualTo(revision);
         assertThat(paths.iconsDir().resolve("new.png")).doesNotExist();
         assertThat(paths.iconsDir().resolve("a.png")).exists();
+    }
+
+    @Test
+    void filesWithNonImageOrMismatchedContentRejectTheWholeImport() throws Exception {
+        byte[] config = store.toJson(store.read());
+        byte[] html = "<html><script>alert(1)</script></html>".getBytes(StandardCharsets.UTF_8);
+        byte[] svg = "<svg xmlns=\"http://www.w3.org/2000/svg\"/>".getBytes(StandardCharsets.UTF_8);
+        Map<String, byte[]> bad = new LinkedHashMap<>();
+        bad.put("uploads/x.html", html);
+        bad.put("uploads/x.png", html);
+        bad.put("uploads/x.svg", svg);
+        bad.put("uploads/x.jpg", PNG);
+        bad.put("icons/x.html", html);
+        bad.put("icons/x.png", html);
+        bad.put("icons/x.png ", PNG);
+        bad.put("icons/x.svg", PNG);
+        bad.put("icons/x.png.svg", "<svg><foo/></svg><svg/>".getBytes(StandardCharsets.UTF_8));
+        for (var entry : bad.entrySet()) {
+            Map<String, byte[]> entries = new LinkedHashMap<>();
+            entries.put("config.json", config);
+            entries.put("uploads/new.png", PNG);
+            entries.put(entry.getKey(), entry.getValue());
+            long revision = store.revision();
+            importZip(zip(entries)).andExpect(status().isBadRequest());
+            assertThat(store.revision()).as(entry.getKey()).isEqualTo(revision);
+            assertThat(paths.uploadsDir().resolve("new.png")).as(entry.getKey()).doesNotExist();
+            assertThat(paths.uploadsDir().resolve("bg.jpg")).as(entry.getKey()).exists();
+        }
+    }
+
+    @Test
+    void importedSvgIconsAreSanitized() throws Exception {
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put("config.json", store.toJson(store.read()));
+        entries.put("icons/x.svg", ("<svg xmlns=\"http://www.w3.org/2000/svg\" onload=\"alert(1)\">"
+                + "<script>alert(2)</script><circle r=\"4\"/></svg>").getBytes(StandardCharsets.UTF_8));
+        importZip(zip(entries)).andExpect(status().isOk());
+        assertThat(Files.readString(paths.iconsDir().resolve("x.svg")))
+                .contains("<circle").doesNotContain("script").doesNotContain("onload");
+    }
+
+    @Test
+    void uploadsAreServedOnlyAsSandboxedImages() throws Exception {
+        Files.writeString(paths.uploadsDir().resolve("x.html"), "<script>alert(1)</script>");
+        Files.writeString(paths.uploadsDir().resolve("x.png"), "<script>alert(1)</script>");
+        mvc.perform(get("/uploads/x.html")).andExpect(status().isNotFound());
+        mvc.perform(get("/uploads/x.png")).andExpect(status().isNotFound());
+        mvc.perform(get("/uploads/bg.jpg"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "image/jpeg"))
+                .andExpect(header().string("Content-Security-Policy", "sandbox"))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"));
     }
 }

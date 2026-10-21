@@ -23,6 +23,15 @@ public record SettingsDto(
         }
     }
 
+    /** The admin username is only for the admin, like in {@link AuthStatusResponse}. */
+    public SettingsDto forViewer(boolean admin) {
+        if (admin || auth.username() == null) {
+            return this;
+        }
+        return new SettingsDto(title, theme, background, customCss, probe,
+                new AuthStatus(auth.requireLoginToView(), auth.requireLoginToEdit(), null, auth.passwordSet()));
+    }
+
     public static SettingsDto from(Settings settings) {
         return new SettingsDto(settings.getTitle(), settings.getTheme(), settings.getBackground(),
                 settings.getCustomCss(), settings.getProbe(), AuthStatus.from(settings.getAuth()));

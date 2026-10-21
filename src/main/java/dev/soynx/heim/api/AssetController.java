@@ -8,13 +8,13 @@ import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
-import org.springframework.http.MediaTypeFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 import dev.soynx.heim.error.NotFoundException;
+import dev.soynx.heim.service.ImageType;
 import dev.soynx.heim.service.SettingsManager;
 import dev.soynx.heim.service.UploadStorage;
 
@@ -40,16 +40,20 @@ public class AssetController {
                 .body(settings.customCss());
     }
 
-    /** Upload names are unique per upload, so they can be cached for a long time. */
+    /**
+     * Only raster images are served, typed by their content rather than their name, and sandboxed so
+     * nothing in this directory can ever run as a page on Heim's origin. Upload names are unique per
+     * upload, so they can be cached for a long time.
+     */
     @GetMapping("/uploads/{file}")
     public ResponseEntity<Resource> upload(@PathVariable String file) {
         Path path = uploads.find(file).orElseThrow(() -> new NotFoundException("File not found: " + file));
-        MediaType type = MediaTypeFactory.getMediaType(path.getFileName().toString())
-                .orElse(MediaType.APPLICATION_OCTET_STREAM);
+        ImageType type = uploads.imageType(path).orElseThrow(() -> new NotFoundException("File not found: " + file));
         return ResponseEntity.ok()
-                .contentType(type)
+                .contentType(MediaType.parseMediaType(type.mediaType()))
                 .cacheControl(CacheControl.maxAge(Duration.ofDays(365)).cachePublic().immutable())
                 .header("X-Content-Type-Options", "nosniff")
+                .header("Content-Security-Policy", "sandbox")
                 .body(new FileSystemResource(path));
     }
 }
