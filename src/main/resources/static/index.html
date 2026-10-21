@@ -4,15 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Heim</title>
-  <link rel="stylesheet" href="/css/heim.css">
-  <!-- User stylesheet from settings; app.js re-points it (cache-busted) after changes. -->
-  <link id="custom-css" rel="stylesheet" href="/custom.css">
+  <link rel="stylesheet" href="/heim/css/tokens.css">
+  <link rel="stylesheet" href="/heim/css/heim.css">
+  <link rel="stylesheet" href="/custom.css" id="custom-css">
+  <script src="/heim/js/heim.js"></script>
+  <!-- Last theme seen, until the settings arrive; avoids a light flash for dark users. -->
+  <script>Heim.theme.init();</script>
   <script type="module" src="/js/app.js"></script>
 </head>
 <body>
-  <header id="topbar" class="topbar"></header>
-  <div id="notices" class="notices" aria-live="polite"></div>
-  <main id="view" class="view"></main>
+  <div class="app" id="app"></div>
   <noscript>Heim needs JavaScript.</noscript>
 </body>
 </html>

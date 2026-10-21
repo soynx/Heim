@@ -1,23 +1,19 @@
-// Hash router. A route is [regex, viewFn]; viewFn(container, params, query) may return a cleanup function.
+// Hash router. A route is [regex, view]; view(root, params) may return a cleanup function.
 //
-// Routes used by the app:
-//   #/                     dashboard (default tab)
-//   #/tab/<id>             dashboard on a tab
-//   #/edit/service/new     new service
-//   #/edit/service/<id>    edit service
-//   #/tabs                 tab management
-//   #/settings             settings
-//   #/login                login
+//   #/            dashboard on the default tab
+//   #/tab/<id>    dashboard on a tab
+//   #/settings    settings
+//   #/login       sign in
+//
+// Every render gets a fresh <div class="app" id="app">: Heim.mount() binds its listeners to the
+// root, so reusing one root would stack the listeners of every view shown before.
 
 let routes = [];
-let container = null;
 let cleanup = null;
-let fallback = null;
+let generation = 0;
 
-export function startRouter(target, routeTable, notFound) {
-  container = target;
+export function startRouter(routeTable) {
   routes = routeTable;
-  fallback = notFound;
   window.addEventListener('hashchange', render);
   render();
 }
@@ -31,22 +27,20 @@ export function currentHash() {
   return window.location.hash || '#/';
 }
 
-let generation = 0;
-
-/** Each render gets a fresh root element, so a slow (stale) view only ever draws into a detached node. */
 export async function render() {
   const token = ++generation;
-  const [path, queryString] = currentHash().split('?');
-  const query = new URLSearchParams(queryString || '');
   if (typeof cleanup === 'function') {
     try { cleanup(); } catch (e) { console.error(e); }
   }
   cleanup = null;
+  const old = document.getElementById('app');
   const root = document.createElement('div');
-  root.className = 'view-root';
-  container.replaceChildren(root);
+  root.className = 'app';
+  root.id = 'app';
+  old.replaceWith(root);
 
-  let view = fallback;
+  const path = currentHash().split('?')[0];
+  let view = null;
   let params = [];
   for (const [pattern, candidate] of routes) {
     const match = pattern.exec(path);
@@ -56,10 +50,13 @@ export async function render() {
       break;
     }
   }
-  if (!view) return;
+  if (!view) {
+    navigate('#/');
+    return;
+  }
   let result = null;
   try {
-    result = await view(root, params, query);
+    result = await view(root, params);
   } catch (e) {
     console.error(e);
   }
