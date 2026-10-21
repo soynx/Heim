@@ -13,7 +13,7 @@ data/
 # OS
 .DS_Store
 
-# Claude Code (agent worktrees)
+# Local tooling
 .claude/
 
 # Local-only Dockerfile with this PC's corporate root CA
