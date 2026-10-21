@@ -1,0 +1,105 @@
+/* Heim — generated from tokens.json. Edit tokens.json, not this file. */
+:root, [data-theme="light"] {
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-2: #f3f3f5;
+  --surface-3: #e9e9ed;
+  --surface-translucent: rgba(255, 255, 255, 0.86);
+  --border: #e4e4e8;
+  --border-control: #8c8c96;
+  --ink: #111113;
+  --ink-muted: #5f5f69;
+  --ink-disabled: #a6a6ae;
+  --accent: #2f54d0;
+  --accent-hover: #2645b8;
+  --on-accent: #ffffff;
+  --accent-subtle: #eef2fd;
+  --accent-ink: #2846b8;
+  --focus: var(--accent);
+  --status-up: #18794e;
+  --status-degraded: #b45d06;
+  --status-down: #d1242f;
+  --status-unknown: #8c8c96;
+  --danger: var(--status-down);
+  --danger-hover: #b31d27;
+  --on-danger: #ffffff;
+  --danger-subtle: #fdeded;
+  --danger-ink: #b4232c;
+  --warning-subtle: #fdf4e4;
+  --warning-ink: #8a4a06;
+  --tooltip-bg: #18181b;
+  --tooltip-ink: #fafafa;
+  --scrim: rgba(10, 10, 12, 0.32);
+  --shadow-overlay: 0 8px 24px rgba(17, 17, 19, 0.08), 0 2px 6px rgba(17, 17, 19, 0.04);
+  --shadow-drag: 0 12px 32px rgba(17, 17, 19, 0.12);
+}
+[data-theme="dark"] {
+  --bg: #0b0b0d;
+  --surface: #141417;
+  --surface-2: #1c1c20;
+  --surface-3: #26262b;
+  --surface-translucent: rgba(20, 20, 23, 0.82);
+  --border: #26262b;
+  --border-control: #6e6e78;
+  --ink: #ededf0;
+  --ink-muted: #a1a1aa;
+  --ink-disabled: #55555e;
+  --accent: #7d9bff;
+  --accent-hover: #97b0ff;
+  --on-accent: #0b0b0d;
+  --accent-subtle: #1a2142;
+  --accent-ink: #a9bcff;
+  --focus: var(--accent);
+  --status-up: #3dd68c;
+  --status-degraded: #f5a524;
+  --status-down: #ff6369;
+  --status-unknown: #6e6e78;
+  --danger: var(--status-down);
+  --danger-hover: #ff8086;
+  --on-danger: #0b0b0d;
+  --danger-subtle: #2b1517;
+  --danger-ink: #ff8f94;
+  --warning-subtle: #2a1f0d;
+  --warning-ink: #f5b54a;
+  --tooltip-bg: #ededf0;
+  --tooltip-ink: #18181b;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-drag: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-full: 9999px;
+  --size-control: 32px;
+  --size-control-sm: 24px;
+  --size-icon-tile: 40px;
+  --size-top-bar: 56px;
+  --size-card-min: 272px;
+  --size-drawer: 560px;
+  --size-content: 1440px;
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@font-face { font-family: 'Geist'; src: url('../fonts/Geist-Variable.woff2') format('woff2'); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Geist Mono'; src: url('../fonts/GeistMono-Variable.woff2') format('woff2'); font-weight: 100 900; font-style: normal; font-display: swap; }
+.text-display { font-family: var(--font-sans); font-size: 28px; line-height: 36px; font-weight: 600; letter-spacing: -0.02em; }
+.text-title { font-family: var(--font-sans); font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -0.01em; }
+.text-heading { font-family: var(--font-sans); font-size: 15px; line-height: 22px; font-weight: 600; }
+.text-body { font-family: var(--font-sans); font-size: 14px; line-height: 20px; font-weight: 400; }
+.text-body-strong { font-family: var(--font-sans); font-size: 14px; line-height: 20px; font-weight: 500; }
+.text-small { font-family: var(--font-sans); font-size: 13px; line-height: 18px; font-weight: 400; }
+.text-caption { font-family: var(--font-sans); font-size: 12px; line-height: 16px; font-weight: 500; }
+.text-label { font-family: var(--font-sans); font-size: 13px; line-height: 18px; font-weight: 500; }
+.text-overline { font-family: var(--font-sans); font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.04em; }
+.text-mono { font-family: var(--font-mono); font-size: 12px; line-height: 16px; font-weight: 400; }
+.text-code { font-family: var(--font-mono); font-size: 13px; line-height: 20px; font-weight: 400; }

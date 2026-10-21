@@ -105,13 +105,12 @@ export const api = {
     create: (body) => request('POST', '/api/services', { body }),
     update: (id, body, etag) => request('PUT', `/api/services/${enc(id)}`, { body, etag }),
     remove: (id, etag) => request('DELETE', `/api/services/${enc(id)}`, { etag }),
-    uploadIcon: (id, file) => request('POST', `/api/services/${enc(id)}/icon`, { form: fileForm(file) }),
+    uploadIcon: (id, file, etag) => request('POST', `/api/services/${enc(id)}/icon`, { form: fileForm(file), etag }),
     refreshIcon: (id) => request('POST', `/api/services/${enc(id)}/icon/refresh`),
   },
 
   icons: {
     library: (q) => get(`/api/icons/library?q=${enc(q)}`),
-    url: (cachedFile) => (cachedFile ? `/icons/${enc(cachedFile)}` : null),
   },
 
   tabs: {

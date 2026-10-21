@@ -55,5 +55,7 @@ Heim is a self-hosted dashboard, a Heimdall alternative. Each widget is a **serv
 - Write commit messages in English and keep them short.
 
 ## Frontend
-- `src/main/resources/static/` is a **placeholder** vanilla-ES-module SPA. Its API wrapper (`js/api.js`) handles CSRF, ETag and 401, and `js/status.js` handles SSE.
-- The real design is in `.design/heim-design/` (tokens, components, `heim.js`, `heim.d.ts`; read its `README.md` and `DESIGN.md`). Its JSON shapes and paths differ from the backend's, so connect it through a frontend adapter and keep the backend contract stable.
+- `src/main/resources/static/heim/` is the design system, copied from the hand-off in `.design/heim-design/` (read its `README.md` and `DESIGN.md`; `.design/` is not committed and stays out of the image). Treat `heim.js`/`heim.css` as a library: class names are a public API for custom CSS. Local change to `heim.js`: `Heim.Dashboard` passes `settingsHref`/`loginHref` to the top bar, and `loginHref: false` hides "Log in".
+- `static/js/` is the app, plain ES modules with no build step: `api.js` (fetch, CSRF, If-Match, 401), `status.js` (SSE with polling fallback), `session.js`, `router.js` (hash routes, a fresh `#app` root per view), `ui.js` (dialogs, errors, appearance) and `views/`.
+- `js/adapter.js` is the only place where backend JSON and the design's shapes (`heim.d.ts`) meet: link kinds, theme names, probe ↔ health (timeouts are seconds in the API and milliseconds in the UI), LinkStatus → `Heim.applyProbe`, icons (`/icons/<cachedFile>` or initials) and URL/colour sanitizing. Keep the backend contract stable and map there.
+- User data never goes into `innerHTML`: build nodes with the Heim factories (they escape) or DOM properties.

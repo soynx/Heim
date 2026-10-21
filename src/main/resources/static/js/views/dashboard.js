@@ -1,96 +1,267 @@
-// Dashboard: tab bar + one card per service of the active tab.
+// Dashboard: Heim.Dashboard over GET /api/dashboard, live status, and every edit-mode action.
 
 import { api } from '../api.js';
-import { h, safeUrl } from '../dom.js';
-import { session } from '../session.js';
-import { applySettings } from '../chrome.js';
-import { onStatus } from '../status.js';
-import { showError } from '../ui.js';
-import { serviceIcon, linkDot, serviceBadge, paintStatus } from '../components.js';
+import { session, refreshSession } from '../session.js';
+import { navigate, render as rerender } from '../router.js';
+import { onStatus, getStatus, restartStatus } from '../status.js';
+import { dashboardToUi, applySnapshot, probeToUi, probeEvent } from '../adapter.js';
+import { applyAppearance, confirmDialog, pickFile, showError, el } from '../ui.js';
+import { openServiceEditor } from './service-editor.js';
+import { openTabEditor } from './tab-editor.js';
+
+const { Heim } = window;
 
 export async function dashboardView(root, [tabId]) {
-  let dashboard;
+  let ui;
   try {
-    ({ data: dashboard } = await api.dashboard());
+    const { data } = await api.dashboard();
+    ui = dashboardToUi(data, getStatus());
   } catch (err) {
-    if (!err.handled) showError(err, 'Could not load the dashboard');
+    if (!err.handled) loadFailed(root, err);
     return null;
   }
-  applySettings(dashboard.settings, dashboard.revision);
+  applyAppearance(ui);
 
-  const tabs = dashboard.tabs || [];
-  const active = tabs.find((t) => t.id === tabId) || tabs.find((t) => t.isDefault) || tabs[0];
-  session.currentTabId = active?.id || null;
+  const me = session.me;
+  const cfg = {
+    canEdit: me.canEdit,
+    user: me.authenticated ? me.username : null,
+    settingsHref: '#/settings',
+    loginHref: me.passwordSet ? '#/login' : false,
+    servicesFor: (id) => ui.servicesByTab[id] || [],
+    onAction,
+  };
+  function fill() {
+    Object.assign(cfg, {
+      title: ui.title,
+      tabs: ui.tabs,
+      services: ui.services,
+      background: ui.background,
+      firstRun: ui.services.length === 0 && me.canEdit,
+    });
+  }
+  fill();
+  cfg.tab = (ui.tabs.find((t) => t.id === tabId) || ui.tabs.find((t) => t.isDefault) || ui.tabs[0] || {}).id;
+  const dash = Heim.Dashboard(root, cfg);
 
-  root.append(
-    h('h1', { class: 'page-title' }, dashboard.settings?.title || 'Heim'),
-    tabBar(tabs, active),
-    active ? serviceGrid(active) : h('p', { class: 'empty' }, 'No tabs yet.'));
+  async function reload() {
+    try {
+      const { data } = await api.dashboard();
+      ui = dashboardToUi(data, getStatus());
+    } catch (err) {
+      pageError(err);
+      return;
+    }
+    applyAppearance(ui);
+    fill();
+    if (!ui.tabs.some((t) => t.id === dash.state.tab)) dash.state.tab = (ui.tabs.find((t) => t.isDefault) || ui.tabs[0]).id;
+    dash.render();
+  }
 
-  return onStatus((state) => paintStatus(root, state));
+  function pageError(err) {
+    showError(root.querySelector('#main'), err);
+  }
+
+  /** Writes run one after another, so quick keyboard moves arrive in order. */
+  let queue = Promise.resolve();
+  function enqueue(write) {
+    queue = queue.then(write).catch((err) => { pageError(err); return reload(); });
+    return queue;
+  }
+
+  function requireEdit() {
+    if (me.canEdit) return true;
+    session.returnTo = window.location.hash || '#/';
+    navigate('#/login');
+    return false;
+  }
+
+  function serviceName(id) {
+    return ui.services.find((s) => s.id === id)?.name || 'this service';
+  }
+
+  function onAction(name, d) {
+    switch (name) {
+      case 'select-tab':
+        history.replaceState(null, '', `#/tab/${encodeURIComponent(d.id)}`);
+        break;
+      case 'add-service':
+        if (requireEdit()) openServiceEditor({ tabs: ui.tabs, tabId: dash.state.tab, onSaved: reload });
+        break;
+      case 'edit-service':
+        if (requireEdit()) openServiceEditor({ serviceId: d.serviceId, tabs: ui.tabs, onSaved: reload });
+        break;
+      case 'delete-service':
+        deleteService(d.serviceId);
+        break;
+      case 'reorder-services':
+        enqueue(saveServiceOrder);
+        break;
+      case 'add-tab':
+        openTabEditor({ tabs: ui.tabs, onSaved: (id) => { if (id) dash.state.tab = id; return reload(); } });
+        break;
+      case 'edit-tab':
+        openTabEditor({ tabId: dash.state.tab, tabs: ui.tabs, onSaved: reload });
+        break;
+      case 'logout':
+        logout();
+        break;
+      case 'import':
+        if (requireEdit()) importBackup();
+        break;
+      default:
+    }
+  }
+
+  async function deleteService(id) {
+    const ok = await confirmDialog({
+      title: 'Delete service',
+      body: `${serviceName(id)} is removed from every tab. This can’t be undone.`,
+      confirmLabel: 'Delete service',
+    });
+    if (!ok) return;
+    enqueue(async () => {
+      await api.services.remove(id);
+      await reload();
+    });
+  }
+
+  /** The grid's DOM order is the new order of the active tab (its first, unnamed group in v1). */
+  async function saveServiceOrder() {
+    const id = dash.state.tab;
+    const order = [...root.querySelectorAll('.service-grid .service-card[data-service-id]')].map((c) => c.dataset.serviceId);
+    const byId = new Map(ui.services.map((s) => [s.id, s]));
+    ui.servicesByTab[id] = order.map((sid) => byId.get(sid)).filter(Boolean);
+    const { data: tab, etag } = await api.tabs.get(id);
+    const groups = tab.groups.length ? tab.groups : [{ id: null, name: null }];
+    const body = groups.map((g, i) => ({ id: g.id, name: g.name, serviceIds: i === 0 ? order : [] }));
+    await api.tabs.setGroups(id, body, etag);
+  }
+
+  async function saveTabOrder(bar) {
+    const ids = [...bar.querySelectorAll('.tab[data-tab-id]')].map((t) => t.dataset.tabId);
+    if (ids.join() === ui.tabs.map((t) => t.id).join()) return;
+    const focusId = document.activeElement?.dataset?.tabId;
+    await api.tabs.reorder(ids);
+    await reload();
+    if (focusId) root.querySelector(`.top-bar [data-tab-id="${CSS.escape(focusId)}"]`)?.focus();
+  }
+
+  async function logout() {
+    try {
+      await api.auth.logout();
+    } catch (err) {
+      pageError(err);
+      return;
+    }
+    await refreshSession();
+    restartStatus();
+    rerender();
+  }
+
+  async function importBackup() {
+    const file = await pickFile('.zip,application/zip');
+    if (!file) return;
+    const ok = await confirmDialog({
+      title: 'Import configuration',
+      body: `All current services, tabs and settings are replaced by the contents of ${file.name}.`,
+      confirmLabel: 'Import',
+    });
+    if (!ok) return;
+    enqueue(async () => {
+      await api.backup.importZip(file);
+      await reload();
+    });
+  }
+
+  wireTabReorder(root, saveTabOrder, enqueue);
+
+  /** Redraws for a status change and puts keyboard focus back where it was inside a card. */
+  function redraw() {
+    const active = document.activeElement;
+    const card = active && active.closest && active.closest('.service-card');
+    dash.render();
+    if (!card) return;
+    const again = root.querySelector(`.service-card[data-service-id="${CSS.escape(card.dataset.serviceId)}"]`);
+    const sel = active.dataset.linkId ? `[data-link-id="${CSS.escape(active.dataset.linkId)}"]`
+      : active.dataset.action ? `[data-action="${CSS.escape(active.dataset.action)}"]` : '.service-card__primary';
+    again?.querySelector(sel)?.focus();
+  }
+
+  // A snapshot replaces everything, so the view is drawn again (it also carries the toolbar's
+  // "n degraded · n down" counts). Single updates patch the card in place and only redraw when the
+  // service's overall status changes, because the counts depend on it.
+  const unsubscribe = onStatus((state, change) => {
+    if (!change) {
+      applySnapshot(ui.services, state);
+      redraw();
+      return;
+    }
+    const svc = ui.services.find((s) => s.id === change.serviceId);
+    const link = svc && svc.links.find((l) => l.id === change.linkId);
+    if (!link) return;
+    const before = Heim.computeStatus(svc.links).status;
+    link.probe = probeToUi(state.links[link.id], link.probeEnabled);
+    if (Heim.computeStatus(svc.links).status !== before && !root.querySelector('.service-card--dragging')) redraw();
+    else Heim.applyProbe(root, probeEvent(svc.id, link));
+  });
+
+  return () => {
+    unsubscribe();
+    document.querySelectorAll('body > .dialog-root').forEach((d) => d.remove());
+  };
 }
 
-function tabBar(tabs, active) {
-  if (tabs.length <= 1 && !session.canEdit) return null;
-  return h('nav', { class: 'tabbar', 'aria-label': 'Tabs' },
-    tabs.map((tab) => h('a', {
-      class: 'tab' + (tab === active ? ' active' : ''),
-      href: `#/tab/${encodeURIComponent(tab.id)}`,
-      'aria-current': tab === active ? 'page' : null,
-      style: tab.color ? { '--tab-color': tab.color } : null,
-    }, tab.name)),
-    session.canEdit ? h('a', { class: 'tab tab-manage', href: '#/tabs' }, 'Manage tabs') : null);
+/**
+ * Tabs reorder in edit mode by dragging, or with Alt+Left/Right on a focused tab (plain arrows move
+ * between tabs). heim.js only provides this for cards.
+ */
+function wireTabReorder(root, save, enqueue) {
+  let dragged = null;
+  const editingTab = (node) => node && node.closest && node.closest('.tab-bar--editing .tab');
+
+  root.addEventListener('pointerdown', (e) => {
+    const tab = editingTab(e.target);
+    if (tab) tab.draggable = true;
+  });
+  root.addEventListener('dragstart', (e) => {
+    const tab = editingTab(e.target);
+    if (!tab) return;
+    dragged = tab;
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', tab.dataset.tabId); } catch { /* not needed */ }
+  });
+  root.addEventListener('dragover', (e) => {
+    if (!dragged) return;
+    const over = editingTab(e.target);
+    if (!over || over === dragged || over.parentElement !== dragged.parentElement) return;
+    e.preventDefault();
+    const r = over.getBoundingClientRect();
+    over.parentElement.insertBefore(dragged, e.clientX - r.left > r.width / 2 ? over.nextElementSibling : over);
+  });
+  root.addEventListener('dragend', () => {
+    if (!dragged) return;
+    const bar = dragged.parentElement;
+    dragged.removeAttribute('draggable');
+    dragged = null;
+    enqueue(() => save(bar));
+  });
+  root.addEventListener('keydown', (e) => {
+    const tab = editingTab(e.target);
+    if (!tab || !e.altKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+    e.preventDefault();
+    e.stopPropagation(); // keep heim.js from treating it as tab navigation
+    const sibling = e.key === 'ArrowLeft' ? tab.previousElementSibling : tab.nextElementSibling;
+    if (!sibling || !sibling.matches('.tab')) return;
+    tab.parentElement.insertBefore(tab, e.key === 'ArrowLeft' ? sibling : sibling.nextElementSibling);
+    tab.focus();
+    enqueue(() => save(tab.parentElement));
+  }, true);
 }
 
-function serviceGrid(tab) {
-  const services = tab.services || [];
-  return h('section', { class: 'grid' },
-    services.map(serviceCard),
-    session.canEdit ? h('a', { class: 'card card-add', href: '#/edit/service/new' }, '+ Add service') : null,
-    services.length === 0 && !session.canEdit ? h('p', { class: 'empty' }, 'No services on this tab.') : null);
-}
-
-function serviceCard(service) {
-  const links = service.links || [];
-  const primary = links.find((l) => l.id === service.primaryLinkId) || links[0];
-  const others = links.filter((l) => l !== primary);
-  const href = primary ? safeUrl(primary.url) : null;
-
-  const main = h(href ? 'a' : 'div', {
-    class: 'card-main',
-    href,
-    target: href && primary.openInNewTab ? '_blank' : null,
-    rel: href && primary.openInNewTab ? 'noopener noreferrer' : null,
-    title: primary ? primary.url : null,
-  },
-  serviceIcon(service),
-  h('div', { class: 'card-text' },
-    h('div', { class: 'card-name' }, service.name, primary?.probeEnabled ? linkDot(primary.id) : null),
-    service.description ? h('div', { class: 'card-desc' }, service.description) : null));
-
-  return h('article', {
-    class: 'card',
-    dataset: { serviceId: service.id },
-    style: service.color ? { '--service-color': service.color } : null,
-  },
-  main,
-  serviceBadge(service.id),
-  others.length ? h('div', { class: 'chips' }, others.map(linkChip)) : null,
-  session.canEdit
-    ? h('a', { class: 'card-edit', href: `#/edit/service/${encodeURIComponent(service.id)}`, title: 'Edit service' }, 'Edit')
-    : null);
-}
-
-function linkChip(link) {
-  const href = safeUrl(link.url);
-  return h(href ? 'a' : 'span', {
-    class: 'chip',
-    href,
-    target: href && link.openInNewTab ? '_blank' : null,
-    rel: href && link.openInNewTab ? 'noopener noreferrer' : null,
-    title: link.url,
-  },
-  link.probeEnabled ? linkDot(link.id) : null,
-  h('span', { class: 'chip-label' }, link.label || link.url),
-  link.kind ? h('span', { class: 'chip-kind' }, link.kind) : null);
+function loadFailed(root, err) {
+  const main = el('main', 'page');
+  main.id = 'main';
+  root.appendChild(main);
+  showError(main, err);
 }
