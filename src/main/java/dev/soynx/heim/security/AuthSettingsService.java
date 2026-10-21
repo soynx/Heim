@@ -30,7 +30,7 @@ public class AuthSettingsService {
     }
 
     public AuthSettings current() {
-        return store.read().getSettings().getAuth();
+        return store.auth();
     }
 
     public AuthStatusResponse status(Authentication authentication) {

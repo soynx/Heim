@@ -25,10 +25,12 @@ import dev.soynx.heim.api.dto.AuthSettingsRequest;
 import dev.soynx.heim.api.dto.AuthStatusResponse;
 import dev.soynx.heim.config.Versioned;
 import dev.soynx.heim.config.model.AuthSettings;
+import dev.soynx.heim.probe.StatusBroadcaster;
 import dev.soynx.heim.security.AdminSession;
 import dev.soynx.heim.security.AuthSettingsService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 
 /** Session login/logout and the credential/toggle settings. */
@@ -40,16 +42,18 @@ public class AuthController {
     private final SecurityContextRepository contexts;
     private final SessionAuthenticationStrategy sessionStrategy;
     private final CsrfLogoutHandler csrfLogout;
+    private final StatusBroadcaster statusStreams;
     private final SecurityContextHolderStrategy holder = SecurityContextHolder.getContextHolderStrategy();
 
     public AuthController(AuthenticationManager authenticationManager, AuthSettingsService authSettings,
             SecurityContextRepository contexts, SessionAuthenticationStrategy sessionStrategy,
-            CsrfTokenRepository csrfTokens) {
+            CsrfTokenRepository csrfTokens, StatusBroadcaster statusStreams) {
         this.authenticationManager = authenticationManager;
         this.authSettings = authSettings;
         this.contexts = contexts;
         this.sessionStrategy = sessionStrategy;
         this.csrfLogout = new CsrfLogoutHandler(csrfTokens);
+        this.statusStreams = statusStreams;
     }
 
     @PostMapping("/api/auth/login")
@@ -72,6 +76,10 @@ public class AuthController {
     @PostMapping("/api/auth/logout")
     public ResponseEntity<Void> logout(HttpServletRequest request, HttpServletResponse response) {
         Authentication authentication = holder.getContext().getAuthentication();
+        HttpSession session = request.getSession(false);
+        if (session != null) {
+            statusStreams.closeSession(session.getId());
+        }
         csrfLogout.logout(request, response, authentication);
         new SecurityContextLogoutHandler().logout(request, response, authentication);
         return ResponseEntity.noContent().build();

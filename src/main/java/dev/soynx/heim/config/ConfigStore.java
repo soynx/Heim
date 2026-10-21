@@ -28,6 +28,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import dev.soynx.heim.config.migration.MigrationChain;
+import dev.soynx.heim.config.model.AuthSettings;
 import dev.soynx.heim.config.model.HeimConfig;
 import dev.soynx.heim.error.RevisionConflictException;
 
@@ -55,6 +56,8 @@ public class ConfigStore {
 
     /** Never mutated after being assigned; guarded by {@link #lock}. */
     private HeimConfig current;
+    /** The auth settings of {@link #current}; published separately so per-request checks need no deep copy. */
+    private volatile AuthSettings auth;
 
     public ConfigStore(DataPaths paths, MigrationChain migrations, ApplicationEventPublisher events) {
         this.paths = paths;
@@ -71,6 +74,17 @@ public class ConfigStore {
         } finally {
             lock.readLock().unlock();
         }
+    }
+
+    /** Read-only view of the current auth settings, cheap enough to call on every request. */
+    public AuthSettings auth() {
+        AuthSettings snapshot = auth;
+        AuthSettings view = new AuthSettings();
+        view.setRequireLoginToView(snapshot.isRequireLoginToView());
+        view.setRequireLoginToEdit(snapshot.isRequireLoginToEdit());
+        view.setUsername(snapshot.getUsername());
+        view.setPasswordHash(snapshot.getPasswordHash());
+        return view;
     }
 
     public long revision() {
@@ -105,6 +119,7 @@ public class ConfigStore {
             working.setRevision(revision + 1);
             write(working);
             current = copy(working);
+            auth = current.getSettings().getAuth();
             saved = working;
         } finally {
             lock.writeLock().unlock();
@@ -161,6 +176,7 @@ public class ConfigStore {
             }
         }
         current = decoded.config();
+        auth = current.getSettings().getAuth();
         if (decoded.changed()) {
             current.setRevision(current.getRevision() + 1);
             write(current);

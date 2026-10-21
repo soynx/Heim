@@ -33,7 +33,7 @@ public class DynamicAuthorizationManager implements AuthorizationManager<Request
         if (access == AccessPolicy.Access.PUBLIC) {
             return GRANTED;
         }
-        AuthSettings auth = store.read().getSettings().getAuth();
+        AuthSettings auth = store.auth();
         if (!AccessPolicy.requiresLogin(access, auth)) {
             return GRANTED;
         }

@@ -1,5 +1,8 @@
 package dev.soynx.heim.api;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
+
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,8 +35,9 @@ public class StatusController {
 
     /** Sends {@code snapshot} on connect, then {@code update} events and a heartbeat comment every ~25s. */
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter stream() {
-        return broadcaster.subscribe();
+    public SseEmitter stream(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        return broadcaster.subscribe(session != null ? session.getId() : null);
     }
 
     /**
