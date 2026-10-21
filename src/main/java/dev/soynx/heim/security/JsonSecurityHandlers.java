@@ -28,7 +28,7 @@ class JsonSecurityHandlers implements AuthenticationEntryPoint, AccessDeniedHand
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response,
             AuthenticationException e) throws IOException {
-        write(response, HttpStatus.UNAUTHORIZED, new ApiError("unauthorized", "Login required"));
+        write(response, HttpStatus.UNAUTHORIZED, ApiError.of(HttpStatus.UNAUTHORIZED, "Login required"));
     }
 
     /**
@@ -39,9 +39,9 @@ class JsonSecurityHandlers implements AuthenticationEntryPoint, AccessDeniedHand
     public void handle(HttpServletRequest request, HttpServletResponse response,
             AccessDeniedException e) throws IOException {
         if (e instanceof CsrfException) {
-            write(response, HttpStatus.FORBIDDEN, new ApiError("forbidden", "Missing or invalid CSRF token"));
+            write(response, HttpStatus.FORBIDDEN, ApiError.of(HttpStatus.FORBIDDEN, "Missing or invalid CSRF token"));
         } else {
-            write(response, HttpStatus.UNAUTHORIZED, new ApiError("unauthorized", "Login required"));
+            write(response, HttpStatus.UNAUTHORIZED, ApiError.of(HttpStatus.UNAUTHORIZED, "Login required"));
         }
     }
 

@@ -33,6 +33,10 @@ public class AuthSettingsService {
         return store.auth();
     }
 
+    public boolean isAdmin(Authentication authentication) {
+        return AdminSession.isAdmin(authentication, current());
+    }
+
     public AuthStatusResponse status(Authentication authentication) {
         AuthSettings auth = current();
         return AuthStatusResponse.of(auth, AdminSession.isAdmin(authentication, auth));

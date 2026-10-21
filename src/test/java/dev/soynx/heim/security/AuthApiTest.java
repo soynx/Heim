@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.nio.file.Path;
@@ -157,6 +158,20 @@ class AuthApiTest {
                 .andExpect(jsonPath("$.requireLoginToEdit").value(true))
                 .andExpect(jsonPath("$.canView").value(true))
                 .andExpect(jsonPath("$.canEdit").value(false));
+    }
+
+    @Test
+    void settingsShowUsernameOnlyToAdmin() throws Exception {
+        SecurityTestSupport.configure(store, encoder, true, false, false);
+        String anonymousTag = mvc.perform(get("/api/settings"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.auth.username").value(Matchers.nullValue()))
+                .andExpect(jsonPath("$.auth.passwordSet").value(true))
+                .andReturn().getResponse().getHeader("ETag");
+        MockHttpSession session = SecurityTestSupport.login(mvc);
+        mvc.perform(get("/api/settings").session(session))
+                .andExpect(jsonPath("$.auth.username").value("admin"))
+                .andExpect(header().string("ETag", anonymousTag));
     }
 
     @Test

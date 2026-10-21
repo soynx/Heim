@@ -116,6 +116,6 @@ public class AuthController {
 
     private static ResponseEntity<ApiError> invalidCredentials() {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(new ApiError("unauthorized", "Invalid username or password"));
+                .body(ApiError.of(HttpStatus.UNAUTHORIZED, "Invalid username or password"));
     }
 }
