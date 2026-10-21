@@ -15,7 +15,6 @@ import org.junit.jupiter.api.io.TempDir;
 import dev.soynx.heim.api.dto.DashboardView;
 import dev.soynx.heim.api.dto.DashboardView.DashboardTab;
 import dev.soynx.heim.api.dto.GroupRequest;
-import dev.soynx.heim.api.dto.ServiceDto;
 import dev.soynx.heim.api.dto.TabRequest;
 import dev.soynx.heim.config.ConfigStore;
 import dev.soynx.heim.config.TestStores;
@@ -187,12 +186,12 @@ class TabManagerTest {
         assertThat(tabById(home).getGroups().getFirst().getServiceIds()).containsExactly(a, b, c);
         assertThat(tabById(media).getGroups().getFirst().getServiceIds()).containsExactly(c, a, b);
         assertThat(tabById(media).getGroups().getFirst().getId()).isEqualTo(mediaGroup);
-        assertThat(dashboardTab(home).services()).extracting(ServiceDto::id).containsExactly(a, b, c);
-        assertThat(dashboardTab(media).services()).extracting(ServiceDto::id).containsExactly(c, a, b);
+        assertThat(dashboardTab(home).services()).extracting(DashboardView.DashboardService::id).containsExactly(a, b, c);
+        assertThat(dashboardTab(media).services()).extracting(DashboardView.DashboardService::id).containsExactly(c, a, b);
 
         tabs.setGroups(home, List.of(new GroupRequest(homeGroup, null, List.of(b, c, a))), null);
-        assertThat(dashboardTab(home).services()).extracting(ServiceDto::id).containsExactly(b, c, a);
-        assertThat(dashboardTab(media).services()).extracting(ServiceDto::id).containsExactly(c, a, b);
+        assertThat(dashboardTab(home).services()).extracting(DashboardView.DashboardService::id).containsExactly(b, c, a);
+        assertThat(dashboardTab(media).services()).extracting(DashboardView.DashboardService::id).containsExactly(c, a, b);
     }
 
     @Test
@@ -244,7 +243,7 @@ class TabManagerTest {
         tabs.setGroups(media, List.of(new GroupRequest(group, null, List.of(referenced1)),
                 new GroupRequest(null, null, List.of(referenced2))), null);
 
-        assertThat(dashboardTab(media).services()).extracting(ServiceDto::id)
+        assertThat(dashboardTab(media).services()).extracting(DashboardView.DashboardService::id)
                 .containsExactly(referenced1, referenced2, alpha, mid, zed);
     }
 
@@ -254,7 +253,7 @@ class TabManagerTest {
         svc("A", List.of());
         String b = svc("B", List.of(media));
 
-        assertThat(dashboardTab(media).services()).extracting(ServiceDto::id).containsExactly(b);
+        assertThat(dashboardTab(media).services()).extracting(DashboardView.DashboardService::id).containsExactly(b);
         assertThat(dashboardTab(home).services()).hasSize(2);
     }
 

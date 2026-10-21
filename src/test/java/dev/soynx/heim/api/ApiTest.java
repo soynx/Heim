@@ -105,6 +105,23 @@ class ApiTest {
                 .andExpect(jsonPath("$.revision").value(store.revision()));
     }
 
+    @Test
+    void dashboardHidesProbeConfig() throws Exception {
+        String id = createService("{\"name\":\"nas\",\"links\":[{\"label\":\"LAN\",\"url\":\"https://nas.lan\","
+                + "\"probe\":{\"enabled\":true,\"url\":\"https://admin:s3cret@nas.lan/health\",\"ignoreTls\":true}}]}");
+        String dashboard = mvc.perform(get("/api/dashboard"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(dashboard).contains(id).doesNotContain("s3cret").doesNotContain("/health")
+                .doesNotContain("ignoreTls").doesNotContain("\"probe\"");
+        JsonNode link = json.readTree(dashboard).findParents("primaryLinkId").stream()
+                .filter(s -> s.path("id").asText().equals(id)).findFirst().orElseThrow()
+                .path("links").get(0);
+        assertThat(link.path("label").asText()).isEqualTo("LAN");
+        assertThat(link.path("url").asText()).isEqualTo("https://nas.lan");
+        assertThat(link.path("probeEnabled").asBoolean()).isTrue();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"/api/services", "/api/tabs", "/api/settings"})
     void getsCarryResourceETagIndependentOfRevision(String path) throws Exception {
@@ -442,6 +459,7 @@ class ApiTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentType("image/png"))
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andExpect(header().string("Content-Security-Policy", "sandbox"))
                 .andExpect(content().bytes(PNG));
         mvc.perform(get("/api/dashboard"))
                 .andExpect(jsonPath("$.settings.background.source").value("upload"))

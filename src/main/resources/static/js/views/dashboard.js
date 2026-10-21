@@ -65,7 +65,7 @@ function serviceCard(service) {
   },
   serviceIcon(service),
   h('div', { class: 'card-text' },
-    h('div', { class: 'card-name' }, service.name, primary?.probe?.enabled ? linkDot(primary.id) : null),
+    h('div', { class: 'card-name' }, service.name, primary?.probeEnabled ? linkDot(primary.id) : null),
     service.description ? h('div', { class: 'card-desc' }, service.description) : null));
 
   return h('article', {
@@ -90,7 +90,7 @@ function linkChip(link) {
     rel: href && link.openInNewTab ? 'noopener noreferrer' : null,
     title: link.url,
   },
-  link.probe?.enabled ? linkDot(link.id) : null,
+  link.probeEnabled ? linkDot(link.id) : null,
   h('span', { class: 'chip-label' }, link.label || link.url),
   link.kind ? h('span', { class: 'chip-kind' }, link.kind) : null);
 }

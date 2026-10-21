@@ -14,6 +14,8 @@ import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -30,11 +32,15 @@ import dev.soynx.heim.config.DataPaths;
 import dev.soynx.heim.config.model.AuthSettings;
 import dev.soynx.heim.config.model.HeimConfig;
 import dev.soynx.heim.error.BadRequestException;
+import dev.soynx.heim.icon.IconFetcher;
+import dev.soynx.heim.icon.IconFormat;
+import dev.soynx.heim.service.ImageType;
+import dev.soynx.heim.service.SettingsManager;
 
 /**
  * Backup archives: {@code config.json} (credentials stripped), {@code icons/*} and {@code uploads/*}.
- * Import validates the whole archive into a staging area before swapping anything in, and keeps the
- * current auth settings.
+ * Import validates the whole archive, including every file's content, into a staging area before
+ * swapping anything in, and keeps the current auth settings.
  */
 @Component
 public class BackupService {
@@ -119,12 +125,17 @@ public class BackupService {
                     throw new BadRequestException("Duplicate entry in backup: " + name);
                 }
                 if (name.equals(CONFIG_ENTRY)) {
-                    configJson = readLimited(zip, MAX_CONFIG_BYTES);
+                    configJson = readLimited(zip, CONFIG_ENTRY, MAX_CONFIG_BYTES);
                     extracted += configJson.length;
                     continue;
                 }
                 Path target = stagingTarget(staging, name);
-                extracted += copyLimited(zip, target, MAX_EXTRACTED_BYTES - extracted);
+                byte[] content = validatedContent(name, readLimited(zip, name, maxFileBytes(name)));
+                extracted += content.length;
+                if (extracted > MAX_EXTRACTED_BYTES) {
+                    throw new BadRequestException("Backup is too large when extracted");
+                }
+                Files.write(target, content);
             }
         }
         if (configJson == null) {
@@ -145,6 +156,29 @@ public class BackupService {
             throw new BadRequestException("Unsafe file name in backup: " + name);
         }
         return target;
+    }
+
+    private static long maxFileBytes(String name) {
+        return name.startsWith(ICONS + "/") ? IconFetcher.MAX_ICON_BYTES : SettingsManager.MAX_BACKGROUND_BYTES;
+    }
+
+    /**
+     * Files are served from Heim's origin, so an archive must not smuggle in HTML or scripted SVG: icons
+     * get the same validation and sanitizing as fetched ones, uploads must be raster images, and the
+     * extension must match the content.
+     */
+    private static byte[] validatedContent(String name, byte[] content) {
+        String fileName = name.substring(name.indexOf('/') + 1);
+        if (name.startsWith(ICONS + "/")) {
+            return IconFetcher.validate(content)
+                    .filter(icon -> IconFormat.fromFileName(fileName).equals(Optional.of(icon.format())))
+                    .orElseThrow(() -> new BadRequestException("Not a valid icon in backup: " + name))
+                    .content();
+        }
+        ImageType.detect(content)
+                .filter(type -> fileName.toLowerCase(Locale.ROOT).endsWith("." + type.extension()))
+                .orElseThrow(() -> new BadRequestException("Not a valid image in backup: " + name));
+        return content;
     }
 
     private HeimConfig parseConfig(byte[] json) {
@@ -209,37 +243,13 @@ public class BackupService {
         }
     }
 
-    private static byte[] readLimited(InputStream in, long limit) {
+    private static byte[] readLimited(InputStream in, String name, long limit) {
         try {
             byte[] bytes = in.readNBytes((int) Math.min(limit + 1, Integer.MAX_VALUE));
             if (bytes.length > limit) {
-                throw new BadRequestException(CONFIG_ENTRY + " is too large");
+                throw new BadRequestException(name + " is too large");
             }
             return bytes;
-        } catch (IOException e) {
-            throw new BadRequestException("Backup is not a valid zip archive");
-        }
-    }
-
-    private static long copyLimited(InputStream in, Path target, long limit) throws IOException {
-        byte[] buffer = new byte[64 * 1024];
-        long total = 0;
-        try (OutputStream out = Files.newOutputStream(target)) {
-            int read;
-            while ((read = readChunk(in, buffer)) != -1) {
-                total += read;
-                if (total > limit) {
-                    throw new BadRequestException("Backup is too large when extracted");
-                }
-                out.write(buffer, 0, read);
-            }
-        }
-        return total;
-    }
-
-    private static int readChunk(InputStream in, byte[] buffer) {
-        try {
-            return in.read(buffer);
         } catch (IOException e) {
             throw new BadRequestException("Backup is not a valid zip archive");
         }

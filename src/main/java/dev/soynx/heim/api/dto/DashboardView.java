@@ -8,6 +8,9 @@ import dev.soynx.heim.config.model.BackgroundRef;
 import dev.soynx.heim.config.model.BackgroundSource;
 import dev.soynx.heim.config.model.HeimConfig;
 import dev.soynx.heim.config.model.IconRef;
+import dev.soynx.heim.config.model.Link;
+import dev.soynx.heim.config.model.LinkKind;
+import dev.soynx.heim.config.model.Service;
 import dev.soynx.heim.config.model.Settings;
 import dev.soynx.heim.config.model.Tab;
 import dev.soynx.heim.service.Membership;
@@ -24,7 +27,28 @@ public record DashboardView(long revision, PublicSettings settings, List<Dashboa
     }
 
     public record DashboardTab(String id, String name, IconRef icon, String color,
-            @JsonProperty("isDefault") boolean isDefault, boolean showAll, List<ServiceDto> services) {
+            @JsonProperty("isDefault") boolean isDefault, boolean showAll, List<DashboardService> services) {
+    }
+
+    /** A service as anonymous viewers may see it: no timestamps and no probe configuration. */
+    public record DashboardService(String id, String name, String description, String color, IconRef icon,
+            String primaryLinkId, List<DashboardLink> links, List<String> tabIds) {
+
+        static DashboardService from(Service service, List<String> tabIds) {
+            return new DashboardService(service.getId(), service.getName(), service.getDescription(),
+                    service.getColor(), service.getIcon(), service.getPrimaryLinkId(),
+                    service.getLinks().stream().map(DashboardLink::from).toList(), tabIds);
+        }
+    }
+
+    /** Probe URLs may carry credentials and are for editors only; viewers just learn whether a status exists. */
+    public record DashboardLink(String id, String label, LinkKind kind, String url, boolean openInNewTab,
+            boolean probeEnabled) {
+
+        static DashboardLink from(Link link) {
+            return new DashboardLink(link.getId(), link.getLabel(), link.getKind(), link.getUrl(),
+                    link.isOpenInNewTab(), link.getProbe() != null && link.getProbe().isEnabled());
+        }
     }
 
     public static DashboardView from(HeimConfig config) {
@@ -36,8 +60,8 @@ public record DashboardView(long revision, PublicSettings settings, List<Dashboa
     }
 
     private static DashboardTab tab(HeimConfig config, Tab tab) {
-        List<ServiceDto> services = Membership.resolveServices(config, tab).stream()
-                .map(s -> ServiceDto.from(s, Membership.tabIdsOf(config, s.getId())))
+        List<DashboardService> services = Membership.resolveServices(config, tab).stream()
+                .map(s -> DashboardService.from(s, Membership.tabIdsOf(config, s.getId())))
                 .toList();
         return new DashboardTab(tab.getId(), tab.getName(), tab.getIcon(), tab.getColor(), tab.isDefault(),
                 tab.isShowAll(), services);
