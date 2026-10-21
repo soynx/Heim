@@ -2,6 +2,7 @@ package dev.soynx.heim.security;
 
 import java.util.List;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.server.CookieSameSiteSupplier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -76,11 +77,12 @@ public class SecurityConfig {
         return new ProviderManager(provider);
     }
 
+    /** {@code secure} follows the session cookie setting ({@code HEIM_SECURE_COOKIES}). */
     @Bean
-    CsrfTokenRepository csrfTokenRepository() {
+    CsrfTokenRepository csrfTokenRepository(@Value("${server.servlet.session.cookie.secure:false}") boolean secure) {
         CookieCsrfTokenRepository repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
         repository.setCookiePath("/");
-        repository.setCookieCustomizer(cookie -> cookie.sameSite("Lax"));
+        repository.setCookieCustomizer(cookie -> cookie.sameSite("Lax").secure(secure));
         return repository;
     }
 

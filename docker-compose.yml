@@ -10,5 +10,10 @@ services:
       - ./data:/data
     environment:
       HEIM_DATA_DIR: /data
+      # User and group Heim runs as; ./data is chowned to them at startup.
+      PUID: "1000"
+      PGID: "1000"
+      # Set to "true" when Heim is only reached over HTTPS (e.g. behind a reverse proxy).
+      HEIM_SECURE_COOKIES: "false"
       # Set to "true" for one start to clear login credentials and disable both login toggles.
       HEIM_RESET_AUTH: "false"

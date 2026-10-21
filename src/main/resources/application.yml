@@ -1,5 +1,11 @@
 server:
   port: 8000
+  # Trust X-Forwarded-* from a reverse proxy for scheme, host and client address.
+  forward-headers-strategy: native
+  servlet:
+    session:
+      cookie:
+        secure: ${HEIM_SECURE_COOKIES:false}
 
 spring:
   application:
