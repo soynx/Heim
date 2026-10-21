@@ -3,7 +3,6 @@ package dev.soynx.heim.probe;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.NoRouteToHostException;
-import java.net.Socket;
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.net.http.HttpClient;
@@ -11,9 +10,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.channels.UnresolvedAddressException;
-import java.security.GeneralSecurityException;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
@@ -24,19 +20,17 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLException;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509ExtendedTrustManager;
 
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.stereotype.Component;
 
 import dev.soynx.heim.config.model.ProbeMethod;
+import dev.soynx.heim.net.TrustAllTls;
 
 /**
  * Performs a single HTTP probe. One client per (ignoreTls, followRedirects) combination; the
- * trust-all variant uses an {@link X509ExtendedTrustManager} that also skips hostname checks,
+ * trust-all variant ({@link TrustAllTls}) also skips hostname checks,
  * which keeps the relaxation local to that client instead of a JVM-wide system property.
  */
 @Component
@@ -50,7 +44,7 @@ public class HttpProber implements DisposableBean {
     private final HttpClient[] clients = new HttpClient[4];
 
     public HttpProber() {
-        SSLContext trustAll = trustAllContext();
+        SSLContext trustAll = TrustAllTls.context();
         for (int i = 0; i < clients.length; i++) {
             boolean ignoreTls = (i & 2) != 0;
             boolean followRedirects = (i & 1) != 0;
@@ -158,48 +152,5 @@ public class HttpProber implements DisposableBean {
 
     private static long elapsedMs(long startedNanos) {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos);
-    }
-
-    private static SSLContext trustAllContext() {
-        try {
-            SSLContext context = SSLContext.getInstance("TLS");
-            context.init(null, new TrustManager[] {new TrustAllManager()}, new SecureRandom());
-            return context;
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("Cannot create trust-all SSL context", e);
-        }
-    }
-
-    /** Accepts every certificate and, being an extended manager, skips the hostname check too. */
-    private static final class TrustAllManager extends X509ExtendedTrustManager {
-
-        @Override
-        public void checkClientTrusted(X509Certificate[] chain, String authType, Socket socket) {
-        }
-
-        @Override
-        public void checkServerTrusted(X509Certificate[] chain, String authType, Socket socket) {
-        }
-
-        @Override
-        public void checkClientTrusted(X509Certificate[] chain, String authType, SSLEngine engine) {
-        }
-
-        @Override
-        public void checkServerTrusted(X509Certificate[] chain, String authType, SSLEngine engine) {
-        }
-
-        @Override
-        public void checkClientTrusted(X509Certificate[] chain, String authType) {
-        }
-
-        @Override
-        public void checkServerTrusted(X509Certificate[] chain, String authType) {
-        }
-
-        @Override
-        public X509Certificate[] getAcceptedIssuers() {
-            return new X509Certificate[0];
-        }
     }
 }
