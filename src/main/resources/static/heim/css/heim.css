@@ -182,16 +182,16 @@ a { color: inherit; text-decoration: none; }
 .service-card:has(.menu:not([hidden])) { z-index: 5; }
 .service-card:has(.service-card__primary:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
 .service-card__header { display: flex; align-items: flex-start; gap: var(--space-3); min-width: 0; }
-.service-card__body { flex: 1; min-width: 0; padding-top: 1px; }
+.service-card__body { flex: 1; min-width: 0; padding-top: 1px; min-height: 41px; } /* name + description line, reserved even without a description */
 .service-card__title-row { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .service-card__name { font-size: 14px; line-height: 20px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .service-card__primary { color: inherit; }
 .service-card__primary:focus-visible { outline: none; }
 /* the primary link covers the whole card; chips and actions sit above it */
 .service-card__primary::after { content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: 0; }
-.service-card__description { margin-top: 2px; font-size: 13px; line-height: 18px; color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.service-card__description { margin: 2px 0 0; font-size: 13px; line-height: 18px; color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .service-card__status { display: inline-flex; align-items: center; gap: 6px; height: 22px; margin-left: auto; flex: none; position: relative; z-index: 1; }
-.service-card__links { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); position: relative; z-index: 1; min-width: 0; }
+.service-card__links { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); position: relative; z-index: 1; min-width: 0; margin-top: auto; }
 .service-card__actions { display: none; position: relative; z-index: 2; gap: 2px; margin: -1px -6px 0 auto; flex: none; }
 .service-card__handle { display: none; position: relative; z-index: 2; cursor: grab; margin: -2px 0 0 calc(var(--space-2) * -1); color: var(--ink-muted); }
 
