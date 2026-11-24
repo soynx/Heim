@@ -17,3 +17,7 @@ services:
       HEIM_SECURE_COOKIES: "false"
       # Set to "true" for one start to clear login credentials and disable both login toggles.
       HEIM_RESET_AUTH: "false"
+      # Optional: how Heim itself resolves host names for health checks and icons (see README).
+      # HEIM_DNS_SERVERS: "192.168.1.53"
+      # HEIM_DNS_SEARCH: "lan.example.com"
+      # HEIM_HOSTS: "nas.lan=192.168.1.20,*.apps.example.com=192.168.1.10"

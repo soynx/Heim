@@ -19,7 +19,7 @@ Heim is a self-hosted dashboard, a Heimdall alternative. Each widget is a **serv
 | `icon` | Icon sources (favicon / library / url / upload), cache in `icons/`, SVG sanitizing |
 | `security` | Session login, dynamic view/edit authorization (`AccessPolicy`, `DynamicAuthorizationManager`), SPA-friendly CSRF |
 | `backup` | Zip export/import |
-| `net` | Shared outbound-HTTP helpers (`TrustAllTls` for `ignoreTls`) |
+| `net` | Shared outbound-HTTP helpers (`TrustAllTls` for `ignoreTls`). `net/dns` is the JVM-wide name resolver behind `HEIM_DNS_SERVERS` / `HEIM_DNS_SEARCH` / `HEIM_HOSTS` |
 | `error` | `NotFoundException`, `BadRequestException`, `RevisionConflictException` → JSON `{error, message}` via `ApiExceptionHandler` |
 
 ## Core data decisions (don't break these)
@@ -36,6 +36,7 @@ Heim is a self-hosted dashboard, a Heimdall alternative. Each widget is a **serv
 - Optimistic concurrency uses per-resource ETags / `If-Match`: `config/ResourceTags` hashes a resource's user-editable content, excluding server-managed fields like `icon.cachedFile`, and the managers check it inside the `update` mutator. Collection endpoints hash the ordered id list. A stale tag gives 409. `/api/dashboard` exposes the global `revision`.
 - Validation uses bean validation on request DTOs plus the `Urls` helpers. Link URLs reject `javascript:`/`data:`/`vbscript:`/`file:`, and probe and icon URLs must be http(s).
 - Outbound HTTP uses `java.net.http.HttpClient` with timeouts, size caps and a `Heim/1.0` user agent. A link's `ignoreTls` setting uses a trust-all manager.
+- `HeimApplication.main` installs the `net/dns` resolver before Spring starts: the JDK loads its `InetAddressResolverProvider` (`META-INF/services`) once, at the first lookup. Without the variables the built-in resolver stays in place.
 - Concurrency uses virtual threads for probes and icon fetches.
 - **Security:**
   - There is a single admin, with two toggles: `requireLoginToView` and `requireLoginToEdit`. Both are evaluated live on every request.

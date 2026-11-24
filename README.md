@@ -52,6 +52,21 @@ Everything (config, cached icons, uploads) lives in `/data`. These environment v
 | `PUID` / `PGID` | `1000` | User and group Heim runs as. At startup `/data` is made owned by them, so a `./data` folder that Docker creates as root works out of the box. |
 | `HEIM_SECURE_COOKIES` | `false` | Set to `true` when Heim is only reached over HTTPS, so cookies are marked `Secure`. |
 | `HEIM_RESET_AUTH` | `false` | Locked out? Set to `true` for one start to clear the login credentials and turn the login off. |
+| `HEIM_DNS_SERVERS` | - | DNS servers for health checks and icons, comma-separated and tried in order: IP addresses with an optional port (`192.168.1.53`, `192.168.1.53:5353`, `[fd00::53]:53`). |
+| `HEIM_DNS_SEARCH` | - | Domains to append to names without a dot, comma-separated. Needs `HEIM_DNS_SERVERS`. |
+| `HEIM_HOSTS` | - | Host overrides, comma-separated `host=target`. The target is an IP address or another host name, and `*.example.com` covers everything below that domain: `nas.lan=192.168.1.20,*.apps.example.com=192.168.1.10,old.lan=new.lan`. |
+
+Heim refuses to start if one of the network variables is malformed, and logs the effective values at startup.
+
+### Health checks in Docker
+
+Health checks run inside the container, so Heim must be able to resolve and reach each link from there. If links that only your own DNS server knows are reported as *Unknown host*, set `HEIM_DNS_SERVERS` to that server. Heim resolves a name in this order:
+
+1. `HEIM_HOSTS`: an exact entry, then the most specific wildcard.
+2. `HEIM_DNS_SERVERS`: the first server that responds decides, the next one is only asked if it fails. List only servers that know your internal names.
+3. The container's own resolver, if the servers don't know the name, so Docker service names keep working. If no server responds, this step is skipped for names containing a dot.
+
+These variables only change name resolution. Subnets, gateways and routes are set in the compose file (`networks:`). If a check reports *Unexpected status 403*, the name resolves but the target rejects the container's IP address, for example through a reverse proxy allowlist.
 
 **Behind a reverse proxy:** Heim uses the `X-Forwarded-*` headers your proxy sends. Make sure the proxy sets them, and that Heim can't be reached around the proxy.
 
